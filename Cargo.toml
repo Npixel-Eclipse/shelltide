@@ -1,0 +1,23 @@
+[package]
+name = "shelltide"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.43", features = ["derive"] }
+clap_complete = "4.5.56"
+tokio = { version = "1.47.1", features = ["full"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
+reqwest = { version = "0.12.22", features = ["json"] }
+anyhow = "1.0.98"
+thiserror = "2.0.12"
+dirs = "6.0.0"
+dotenv = "0.15.0"
+async-trait = "0.1.88"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22.1"
+uuid = { version = "1.17.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.10.1"
