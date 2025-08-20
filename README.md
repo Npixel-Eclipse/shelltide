@@ -27,12 +27,6 @@
 4. **계획 생성**: 검증된 SQL 문으로 마이그레이션 계획 생성
 5. **실행**: 모든 검증이 통과한 경우에만 변경사항 적용
 
-### 릴리스 관리
-- 릴리스는 특정 시점의 환경 상태를 캡처합니다
-- 각 릴리스는 환경, 프로젝트, 최신 이슈 번호를 기록합니다
-- 내보내기 기능은 릴리스 간 모든 변경사항을 포함한 SQL 스크립트를 생성합니다
-- 롤백 시나리오와 배포 자동화를 지원합니다
-
 ### 환경 별칭
 - 환경은 Bytebase 프로젝트와 인스턴스에 매핑되는 로컬 별칭으로 저장됩니다
 - 전체 프로젝트 경로 대신 짧은 이름을 사용하여 명령어를 단순화합니다
@@ -74,13 +68,15 @@ shelltide login \
 ### 2. 환경 구성
 
 Bytebase 프로젝트를 명명된 환경으로 등록합니다.
-
+- env-name: 원하는 환경 이름
+- project: project 이름
+- instance: instance 이름
 ```sh
 # 개발 환경 추가
-shelltide env add dev <project> <instance>
+shelltide env add <env-name> <project> <instance>
 
 # 스테이징 환경 추가
-shelltide env add staging <project> <instance>
+shelltide env add <env-name> <project> <instance>
 ```
 
 언제든지 구성된 환경을 목록으로 확인할 수 있습니다:
@@ -93,7 +89,7 @@ shelltide env list
 명령어를 짧게 만들기 위해 기본 소스 환경(보통 개발 환경)을 설정합니다.
 
 ```sh
-shelltide config set default.source_env <env>
+shelltide config set default.source_env <env-name>
 ```
 
 ### 4. 상태 확인
@@ -113,7 +109,7 @@ staging         #123
 
 ### 5. 마이그레이션
 
-소스에서 대상으로 마이그레이션을 적용합니다. 환경과 데이터베이스를 `<env>/<database>`로 지정하고, `--to`로 버전을 지정합니다.
+소스에서 대상으로 마이그레이션을 적용합니다. 환경과 데이터베이스를 `<env-name>/<database>`로 지정하고, `--to`로 버전을 지정합니다.
 
 ```sh
 # dev/mydb에서 staging/mydb로 특정 버전까지 마이그레이션
