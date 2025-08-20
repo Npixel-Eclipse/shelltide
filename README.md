@@ -86,7 +86,7 @@ shelltide env list
 
 ### 3. 기본 구성 설정
 
-명령어를 짧게 만들기 위해 기본 소스 환경(보통 개발 환경)을 설정합니다.
+migration의 기준이 되는 *기본 소스 환경*을 설정합니다.
 
 ```sh
 shelltide config set default.source_env <env-name>
