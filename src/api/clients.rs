@@ -271,7 +271,7 @@ impl BytebaseApi for LiveApiClient {
         Ok(self
             .client
             .get(&url)
-            .query(&[("pageSize", "1000")])
+            .query(&[("pageSize", "1000"), ("view", "CHANGELOG_VIEW_FULL")])
             .send()
             .await?
             .json::<serde_json::Value>()

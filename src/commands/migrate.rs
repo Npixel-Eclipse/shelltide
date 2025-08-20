@@ -76,12 +76,12 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
 
     // create revision
     let revision_name = format!("{}#{}", last_issue.project, last_issue.number);
-    let revision_version = format!("#{}", last_issue.number);
+    let revision_version = format!("{}#{}", last_issue.project, last_issue.number);
     let revision_sheet = last_sheet.to_string();
     api_client
         .create_revision(
-            &source_env.instance,
-            &args.source.db,
+            &target_env.instance,
+            &args.target.db,
             &revision_name,
             &revision_version,
             &revision_sheet,
