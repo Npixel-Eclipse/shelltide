@@ -150,14 +150,14 @@ Reference environment: dev (latest issue: #245)
 
 ### 5. 마이그레이션
 
-소스에서 대상으로 마이그레이션을 적용합니다. 환경과 데이터베이스를 `<env-name>/<database>`로 지정하고, `--to`로 버전을 지정합니다.
+기본 소스 환경(default.source_env)에서 대상 환경으로 마이그레이션을 적용합니다. 소스 데이터베이스 이름과 대상을 `<env-name>/<database>` 형식으로 지정하고, `--to`로 버전을 지정합니다.
 
 ```sh
-# dev/mydb에서 staging/mydb로 특정 버전까지 마이그레이션
-shelltide migrate dev/mydb staging/mydb --to 244
+# source 환경의 mydb 데이터베이스를 staging 환경의 mydb로 특정 버전까지 마이그레이션
+shelltide migrate mydb staging/mydb --to 244
 
 # 사용 가능한 최신 버전으로 마이그레이션
-shelltide migrate dev/mydb prod/mydb --to LATEST
+shelltide migrate mydb prod/mydb --to LATEST
 ```
 명령어는 대기 중인 이슈에 대해 SQL을 검증하고, 오류가 없는 경우에만 진행합니다.
 
