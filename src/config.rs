@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+use crate::cli::LoginArgs;
+
 /// Represents the main configuration for the application, stored in `~/.shelltide/config.json`.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AppConfig {
@@ -17,6 +19,46 @@ pub struct AppConfig {
     /// A map of release names to their details.
     #[serde(default)]
     pub releases: HashMap<String, Release>,
+}
+
+impl AppConfig {
+    pub fn get_credentials(&self) -> Result<&Credentials> {
+        self.credentials
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No credentials found. please run `shelltide login`"))
+    }
+    pub fn get_login_args(&self) -> Result<LoginArgs> {
+        Ok(LoginArgs {
+            url: self
+                .credentials
+                .as_ref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No credentials found. please run `shelltide login`")
+                })?
+                .url
+                .clone(),
+            service_account: self
+                .credentials
+                .as_ref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No credentials found. please run `shelltide login`")
+                })?
+                .service_account
+                .clone(),
+            service_key: self
+                .credentials
+                .as_ref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No credentials found. please run `shelltide login`")
+                })?
+                .service_key
+                .as_ref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No credentials found. please run `shelltide login`")
+                })?
+                .clone(),
+        })
+    }
 }
 
 /// Stores details for a single release.

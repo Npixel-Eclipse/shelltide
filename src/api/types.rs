@@ -128,8 +128,8 @@ impl RevisionVersion {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Revision {
     #[serde(rename = "createTime")]
-    pub create_time: chrono::DateTime<chrono::Utc>,
-    pub version: RevisionVersion,
+    pub create_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Option<RevisionVersion>,
 }
 
 #[derive(Debug, Clone)]
