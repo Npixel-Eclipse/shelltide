@@ -17,7 +17,11 @@ use crate::api::clients::tests::FakeApiClient;
 #[cfg(not(test))]
 async fn get_client() -> Result<LiveApiClient> {
     let app_config = config::load_config().await?;
-    let client = LiveApiClient::new(&app_config.credentials.unwrap())?;
+    let credentials = app_config.get_credentials()?;
+
+    // Try to create client and validate/refresh token if needed
+    let mut client = LiveApiClient::new(credentials)?;
+    client.ensure_authenticated().await?;
 
     Ok(client)
 }
@@ -39,24 +43,15 @@ async fn main() -> Result<()> {
             commands::config::config(args.command).await?;
         }
         Commands::Env(args) => {
-            let mut client = get_client().await?;
-            let app_config = config::load_config().await?;
-            let credentials = app_config.get_credentials()?;
-            client.login(credentials)?;
+            let client = get_client().await?;
             commands::env::handle_env_command(args.command, &client).await?;
         }
         Commands::Migrate(args) => {
-            let mut client = get_client().await?;
-            let app_config = config::load_config().await?;
-            let credentials = app_config.get_credentials()?;
-            client.login(credentials)?;
+            let client = get_client().await?;
             commands::migrate::handle_migrate_command(args, &client).await?;
         }
         Commands::Status => {
-            let mut client = get_client().await?;
-            let app_config = config::load_config().await?;
-            let credentials = app_config.get_credentials()?;
-            client.login(credentials)?;
+            let client = get_client().await?;
             commands::status::handle_status_command(&client).await?;
         }
         Commands::Completion(args) => {
