@@ -116,8 +116,8 @@ impl std::str::FromStr for EnvDb {
 
 #[derive(Parser, Debug)]
 pub struct MigrateArgs {
-    /// Source as "<env>/<database>"
-    pub source: EnvDb,
+    /// Source database name
+    pub source_db: String,
     /// Target as "<env>/<database>"
     pub target: EnvDb,
 

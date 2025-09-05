@@ -11,8 +11,11 @@ pub async fn handle_status_command<T: BytebaseApi>(api_client: &mut T, args: Sta
         return Ok(());
     }
 
-    // Get default source environment for reference
-    let default_source_env = config.default_source_env.as_deref().unwrap_or("dev");
+    // Get default source environment for reference - must be configured
+    let default_source_env = config.default_source_env.as_deref()
+        .ok_or_else(|| anyhow::anyhow!(
+            "Configuration error: default.source_env not set. Please run: shelltide config set default.source_env <env-name>"
+        ))?;
     let default_env = config.environments.get(default_source_env)
         .ok_or_else(|| anyhow::anyhow!("Default source environment '{}' not found in config", default_source_env))?;
 

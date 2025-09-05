@@ -13,10 +13,19 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
 ) -> Result<()> {
     let config = config::load_config().await?;
 
+    // Get default source environment - must be configured
+    let default_source_env = config.default_source_env.as_deref()
+        .ok_or_else(|| AppError::Config(
+            "default.source_env not set. Please run: shelltide config set default.source_env <env-name>".to_string()
+        ))?;
     let source_env = config
         .environments
-        .get(&args.source.env)
-        .ok_or_else(|| AppError::EnvNotFound(args.source.env.clone()))?;
+        .get(default_source_env)
+        .ok_or_else(|| AppError::Config(
+            format!(
+                "Default source environment '{default_source_env}' not found. Please set a valid source environment: shelltide config set default.source_env <env-name>"
+            )
+        ))?;
     let target_env = config
         .environments
         .get(&args.target.env)
@@ -24,7 +33,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
 
     println!(
         "Attempting to apply migrations from '{}' to '{}'...",
-        args.source.env, &args.target.env
+        default_source_env, &args.target.env
     );
 
     let source_latest_no = get_latest_done_issue_no(api_client, &source_env.project).await?;
@@ -39,7 +48,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
 
     println!(
         "Source '{}' is at issue #{}, Target '{}' is at issue #{}.",
-        args.source.env, source_latest_no, &args.target.env, target_latest_no
+        default_source_env, source_latest_no, &args.target.env, target_latest_no
     );
 
     let target_version = if args.to.eq_ignore_ascii_case("LATEST") {
@@ -66,7 +75,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
     let Some((last_issue, last_sheet, all_successful)) = migrate(
         api_client,
         source_env,
-        &args.source.db,
+        &args.source_db,
         target_env,
         &args.target.db,
         &target_revision,
@@ -85,7 +94,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
     } else {
         last_issue.number
     };
-    
+
     let revision_name = format!("{}#{}", last_issue.project, revision_issue_number);
     let revision_version = format!("{}#{}", last_issue.project, revision_issue_number);
     let revision_sheet = last_sheet.to_string();
