@@ -31,7 +31,10 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
     let target_revision = api_client
         .get_latests_revisions(&target_env.instance, &args.target.db)
         .await?;
-    let target_latest_no = target_revision.version.number;
+    let target_latest_no = target_revision.version
+        .as_ref()
+        .ok_or_else(|| AppError::ApiError("Target revision missing version".to_string()))?
+        .number;
 
     println!(
         "Source '{}' is at issue #{}, Target '{}' is at issue #{}.",
@@ -161,7 +164,7 @@ async fn migrate<T: BytebaseApi>(
         .ok()?
         .into_iter()
         .filter(|c| {
-            c.issue.number > target_revision.version.number
+            c.issue.number > target_revision.version.as_ref().map_or(0, |v| v.number)
                 && c.changed_resources
                     .databases
                     .iter()

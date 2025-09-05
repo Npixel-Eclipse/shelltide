@@ -37,6 +37,34 @@ pub struct LiveApiClient {
 }
 
 impl LiveApiClient {
+    /// Helper function to handle API responses with consistent error logging
+    async fn handle_response<T: serde::de::DeserializeOwned>(
+        response: reqwest::Response,
+        operation: &str,
+    ) -> Result<T, AppError> {
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            println!("{operation} failed - Status: {status}, Response: {response_text}",);
+            return Err(AppError::ApiError(format!(
+                "{operation} failed. Status: {status}, Response: {response_text}",
+            )));
+        }
+
+        match serde_json::from_str::<T>(&response_text) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                println!(
+                    "Failed to parse {operation} response - Status: {status}, Response: {response_text}",
+                );
+                Err(AppError::ApiError(format!(
+                    "Failed to parse {operation} response: {e}",
+                )))
+            }
+        }
+    }
+
     /// Creates a new API client with the given credentials.
     pub fn new(credentials: &Credentials) -> Result<Self, AppError> {
         let mut headers = HeaderMap::new();
@@ -88,22 +116,13 @@ impl BytebaseApi for LiveApiClient {
             )));
         }
 
-        if !response.status().is_success() {
-            let error_body = response.text().await.unwrap_or_default();
-            return Err(AppError::ApiError(format!(
-                "Failed to get project '{project_name}': {error_body}"
-            )));
-        }
-        Ok(response.json().await?)
+        Self::handle_response(response, &format!("Get project '{project_name}'")).await
     }
 
     async fn get_instance(&self, instance_name: &str) -> Result<Instance, AppError> {
         let url = format!("{}/v1/instances/{}", self.base_url, instance_name);
         let response = self.client.get(&url).send().await?;
-        Ok(serde_json::from_value(response.json().await?).map_err(|_| {
-            // When the instance is not found, the response has a different structure.
-            AppError::ApiError(format!("Failed to get instance '{instance_name}'"))
-        })?)
+        Self::handle_response(response, &format!("Get instance '{instance_name}'")).await
     }
 
     async fn get_done_issues(&self, project_name: &str) -> Result<Vec<Issue>, AppError> {
@@ -112,14 +131,11 @@ impl BytebaseApi for LiveApiClient {
             self.base_url, project_name
         );
         let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            let error_body = response.text().await.unwrap_or_default();
-            return Err(AppError::ApiError(format!(
-                "Failed to fetch issues for project '{project_name}': {error_body}"
-            )));
-        }
-        let res_json: IssuesResponse = response.json().await?;
+        let res_json: IssuesResponse = Self::handle_response(
+            response,
+            &format!("Get done issues for project '{project_name}'"),
+        )
+        .await?;
         Ok(res_json.issues)
     }
 
@@ -133,7 +149,11 @@ impl BytebaseApi for LiveApiClient {
             self.base_url, target_project_name
         );
         let response = self.client.post(&url).json(&sheet).send().await?;
-        Ok(response.json().await?)
+        Self::handle_response(
+            response,
+            &format!("Create sheet for project '{target_project_name}'"),
+        )
+        .await
     }
 
     /// For now, createing a new Database is not supported.  
@@ -158,7 +178,7 @@ impl BytebaseApi for LiveApiClient {
 
         let plan = PostPlansRequest { steps };
         let response = self.client.post(&url).json(&plan).send().await?;
-        Ok(response.json().await?)
+        Self::handle_response(response, &format!("Create plan for project '{project}'")).await
     }
 
     async fn create_rollout(
@@ -198,7 +218,11 @@ impl BytebaseApi for LiveApiClient {
             "type": "DATABASE_CHANGE",
         });
         let response = self.client.post(&url).json(&body).send().await?;
-        Ok(response.json().await?)
+        Self::handle_response(
+            response,
+            &format!("Create issue for project '{project_name}'"),
+        )
+        .await
     }
 
     async fn check_sql(&self, instance: &str, database: &str, sql: &str) -> Result<(), AppError> {
@@ -209,20 +233,33 @@ impl BytebaseApi for LiveApiClient {
         };
 
         let response = self.client.post(&url).json(&request).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
 
-        if !response.status().is_success() {
-            let error_body = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            println!("SQL check failed - Status: {status}, Response: {response_text}",);
             return Err(AppError::ApiError(format!(
-                "SQL check failed: {error_body}"
+                "SQL check failed. Status: {status}, Response: {response_text}",
             )));
         }
 
         // 성공하면 빈 오브젝트가옴
-        let res_json: serde_json::Value = response.json().await?;
-        if res_json.get("advises").is_some() {
-            Err(AppError::ApiError(format!("SQL check failed: {res_json}")))
-        } else {
-            Ok(())
+        match serde_json::from_str::<serde_json::Value>(&response_text) {
+            Ok(res_json) => {
+                if res_json.get("advises").is_some() {
+                    Err(AppError::ApiError(format!("SQL check failed: {res_json}")))
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => {
+                println!(
+                    "Failed to parse SQL check response - Status: {status}, Response: {response_text}",
+                );
+                Err(AppError::ApiError(format!(
+                    "Failed to parse SQL check response: {e}"
+                )))
+            }
         }
     }
 
@@ -235,14 +272,29 @@ impl BytebaseApi for LiveApiClient {
             "{}/v1/instances/{instance}/databases/{database}/revisions",
             self.base_url,
         );
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-        let revisions = response
+        let response = self.client.get(&url).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            println!("Get latest revisions failed - Status: {status}, Response: {response_text}",);
+            return Err(AppError::ApiError(format!(
+                "Get latest revisions failed. Status: {status}, Response: {response_text}",
+            )));
+        }
+
+        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+            Ok(value) => value,
+            Err(e) => {
+                println!(
+                    "Failed to parse latest revisions response - Status: {status}, Response: {response_text}",
+                );
+                return Err(AppError::ApiError(format!(
+                    "Failed to parse latest revisions response: {e}",
+                )));
+            }
+        };
+        let revisions = response_value
             .get("revisions")
             .ok_or_else(|| AppError::ApiError("No revisions field found".to_string()))?
             .as_array()
@@ -252,9 +304,12 @@ impl BytebaseApi for LiveApiClient {
             .collect::<Vec<Revision>>();
         revisions
             .iter()
-            .max_by_key(|r| r.create_time)
+            .filter(|r| r.create_time.is_some())
+            .max_by_key(|r| r.create_time.as_ref().unwrap())
             .cloned()
-            .ok_or_else(|| AppError::ApiError("No revisions found".to_string()))
+            .ok_or_else(|| {
+                AppError::ApiError("No revisions with valid create_time found".to_string())
+            })
     }
 
     async fn get_changelogs(
@@ -268,14 +323,35 @@ impl BytebaseApi for LiveApiClient {
             self.base_url,
         );
 
-        Ok(self
+        let response = self
             .client
             .get(&url)
             .query(&[("pageSize", "1000"), ("view", "CHANGELOG_VIEW_FULL")])
             .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?
+            .await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            println!("Get changelogs failed - Status: {status}, Response: {response_text}",);
+            return Err(AppError::ApiError(format!(
+                "Get changelogs failed. Status: {status}, Response: {response_text}",
+            )));
+        }
+
+        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+            Ok(value) => value,
+            Err(e) => {
+                println!(
+                    "Failed to parse changelogs response - Status: {status}, Response: {response_text}",
+                );
+                return Err(AppError::ApiError(format!(
+                    "Failed to parse changelogs response: {e}"
+                )));
+            }
+        };
+
+        Ok(response_value
             .get("changelogs")
             .ok_or_else(|| AppError::ApiError("No changelogs field found".to_string()))?
             .as_array()
@@ -313,7 +389,27 @@ impl BytebaseApi for LiveApiClient {
             "sheet": sheet,
         });
         let response = self.client.post(&url).json(&body).send().await?;
-        Ok(response.json().await?)
+        let status = response.status();
+
+        if !status.is_success() {
+            let error_body = response.text().await.unwrap_or_default();
+            println!("Revision creation failed - Status: {status}, Response: {error_body}");
+            return Err(AppError::ApiError(format!(
+                "Failed to create revision. Status: {status}, Response: {error_body}",
+            )));
+        }
+
+        let response_text = response.text().await?;
+        match serde_json::from_str::<Revision>(&response_text) {
+            Ok(revision) => Ok(revision),
+            Err(e) => {
+                println!(
+                    "Failed to parse revision response - Status: {status}, Response: {response_text}"
+                );
+                let error_msg = format!("Failed to parse revision response: {e}");
+                Err(AppError::ApiError(error_msg))
+            }
+        }
     }
 }
 
@@ -341,7 +437,7 @@ pub mod tests {
     }
 
     impl FakeApiClient {
-        pub fn login(&mut self, credentials: &Credentials) -> Result<(), AppError> {
+        pub fn login(&mut self, _credentials: &Credentials) -> Result<(), AppError> {
             Ok(())
         }
     }

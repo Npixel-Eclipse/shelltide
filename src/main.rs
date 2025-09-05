@@ -8,6 +8,7 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
 
+#[cfg(not(test))]
 use crate::api::clients::LiveApiClient;
 
 #[cfg(test)]
@@ -40,19 +41,22 @@ async fn main() -> Result<()> {
         Commands::Env(args) => {
             let mut client = get_client().await?;
             let app_config = config::load_config().await?;
-            client.login(&app_config.credentials.unwrap())?;
+            let credentials = app_config.get_credentials()?;
+            client.login(credentials)?;
             commands::env::handle_env_command(args.command, &client).await?;
         }
         Commands::Migrate(args) => {
             let mut client = get_client().await?;
             let app_config = config::load_config().await?;
-            client.login(&app_config.credentials.unwrap())?;
+            let credentials = app_config.get_credentials()?;
+            client.login(credentials)?;
             commands::migrate::handle_migrate_command(args, &client).await?;
         }
         Commands::Status => {
             let mut client = get_client().await?;
             let app_config = config::load_config().await?;
-            client.login(&app_config.credentials.unwrap())?;
+            let credentials = app_config.get_credentials()?;
+            client.login(credentials)?;
             commands::status::handle_status_command(&client).await?;
         }
         Commands::Completion(args) => {
