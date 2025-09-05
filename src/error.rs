@@ -25,4 +25,7 @@ pub enum AppError {
 
     #[error("Invalid revision version: {0}")]
     InvalidRevisionVersion(String),
+
+    #[error("General error: {0}")]
+    General(#[from] anyhow::Error),
 }

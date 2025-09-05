@@ -31,7 +31,8 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
     let target_revision = api_client
         .get_latests_revisions(&target_env.instance, &args.target.db)
         .await?;
-    let target_latest_no = target_revision.version
+    let target_latest_no = target_revision
+        .version
         .as_ref()
         .ok_or_else(|| AppError::ApiError("Target revision missing version".to_string()))?
         .number;

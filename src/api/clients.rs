@@ -102,6 +102,51 @@ impl LiveApiClient {
             .build()?;
         Ok(())
     }
+
+    /// Ensures the client is authenticated with a valid token, refreshing if necessary
+    pub async fn ensure_authenticated(&mut self) -> Result<(), AppError> {
+        // Token validation by trying to list projects (most basic authenticated endpoint)
+        let url = format!("{}/v1/projects", self.base_url);
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED
+            || response.status() == reqwest::StatusCode::FORBIDDEN
+        {
+            println!("Token expired, attempting to refresh...");
+
+            // Load current credentials
+            let config = crate::config::load_config().await?;
+            let credentials = config.get_credentials()?;
+
+            // Check if we have service_key for refresh
+            if let Some(service_key) = &credentials.service_key {
+                let login_response =
+                    get_access_token(&credentials.url, &credentials.service_account, service_key)
+                        .await?;
+
+                // Update credentials and save to config
+                let mut updated_credentials = credentials.clone();
+                updated_credentials.access_token = login_response.token;
+
+                let mut updated_config = config;
+                updated_config.credentials = Some(updated_credentials.clone());
+                crate::config::save_config(&updated_config).await?;
+
+                // Update client with new token
+                self.login(&updated_credentials)?;
+
+                println!("Token refreshed successfully.");
+                Ok(())
+            } else {
+                Err(AppError::Config(
+                    "No service key available for token refresh. Please login again.".to_string(),
+                ))
+            }
+        } else {
+            // Token is still valid
+            Ok(())
+        }
+    }
 }
 
 #[async_trait]
