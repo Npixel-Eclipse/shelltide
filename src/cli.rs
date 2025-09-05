@@ -24,7 +24,7 @@ pub enum Commands {
     Migrate(MigrateArgs),
 
     /// Show the current migration status of all environments
-    Status,
+    Status(StatusArgs),
 
     /// Generate shell completions
     Completion(CompletionArgs),
@@ -141,4 +141,10 @@ pub struct CompletionArgs {
     /// The shell to generate completions for
     #[clap(value_enum)]
     pub shell: Shell,
+}
+
+#[derive(Parser, Debug)]
+pub struct StatusArgs {
+    /// Optional filter for specific environment/database as "<env>/<database>" or just "<env>"
+    pub filter: Option<String>,
 }

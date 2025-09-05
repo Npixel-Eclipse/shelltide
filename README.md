@@ -94,18 +94,59 @@ shelltide config set default.source_env <env-name>
 
 ### 4. 상태 확인
 
-각 환경에서 마지막으로 적용된 이슈의 개요를 확인합니다.
+모든 환경의 각 데이터베이스 스키마별로 마이그레이션 상태를 확인합니다. 기본 소스 환경(default.source_env)을 참조점으로 사용하여 상태를 표시합니다.
 
 ```sh
+# 모든 환경과 스키마의 상태 확인 (기본 소스 환경 제외)
 shelltide status
+
+# 특정 환경만 필터링 (해당 환경의 모든 데이터베이스)
+shelltide status staging
+
+# 특정 환경의 특정 데이터베이스만 확인
+shelltide status staging/bridge
 ```
+
 **출력 예시:**
+
+전체 상태 확인 시 (`shelltide status`):
 ```
-ENVIRONMENT     LATEST ISSUE         
---------------- --------------------
-dev             #125                
-staging         #123                
+SCHEMA                 ENVIRONMENT     LATEST CHANGELOG    
+---------------------- --------------- --------------------
+prod-instance/admin    prod            #240                
+prod-instance/bridge   prod            #240                
+stage-instance/admin   staging         NOT EXIST           
+stage-instance/bridge  staging         #244                
+
+Reference environment: dev (latest issue: #245)
 ```
+
+특정 환경 필터링 시 (`shelltide status staging`):
+```
+SCHEMA                 ENVIRONMENT     LATEST CHANGELOG    
+---------------------- --------------- --------------------
+stage-instance/admin   staging         NOT EXIST           
+stage-instance/bridge  staging         #244                
+
+Reference environment: dev (latest issue: #245)
+```
+
+특정 데이터베이스 확인 시 (`shelltide status staging/bridge`):
+```
+SCHEMA                 ENVIRONMENT     LATEST CHANGELOG    
+---------------------- --------------- --------------------
+stage-instance/bridge  staging         #244                
+
+Reference environment: dev (latest issue: #245)
+```
+
+**상태 표시:**
+- `UP TO DATE`: 기준 환경과 같거나 더 최신 버전
+- `#숫자`: 해당 이슈 번호까지 적용됨
+- `NOT EXIST`: 해당 환경에 데이터베이스가 존재하지 않음
+- `NO VERSION`: 데이터베이스는 존재하지만 버전 정보 없음
+
+기준 환경(Reference environment)의 최신 이슈 번호가 하단에 표시됩니다.
 
 ### 5. 마이그레이션
 

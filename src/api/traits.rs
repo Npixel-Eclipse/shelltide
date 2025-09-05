@@ -53,4 +53,7 @@ pub trait BytebaseApi: Send + Sync {
         sheet: &str,
     ) -> Result<Revision, AppError>;
     async fn check_sql(&self, instance: &str, database: &str, sql: &str) -> Result<(), AppError>;
+    async fn get_databases(&self, instance: &str) -> Result<Vec<String>, AppError>;
+    /// Get latest revisions without error logging (for status command)
+    async fn get_latests_revisions_silent(&self, instance: &str, database: &str) -> Result<Revision, AppError>;
 }

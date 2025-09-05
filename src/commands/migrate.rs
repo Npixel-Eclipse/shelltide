@@ -63,7 +63,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
 
     // Execute migrations
     println!("--- Applying Migrations ---");
-    let Some((last_issue, last_sheet)) = migrate(
+    let Some((last_issue, last_sheet, all_successful)) = migrate(
         api_client,
         source_env,
         &args.source.db,
@@ -71,6 +71,7 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
         &args.target.db,
         &target_revision,
         &SQLDialect::MySQL,
+        target_version,
     )
     .await
     else {
@@ -78,9 +79,15 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
         return Ok(());
     };
 
-    // create revision
-    let revision_name = format!("{}#{}", last_issue.project, last_issue.number);
-    let revision_version = format!("{}#{}", last_issue.project, last_issue.number);
+    // create revision - use target version if all successful, otherwise use last applied issue
+    let revision_issue_number = if all_successful {
+        target_version
+    } else {
+        last_issue.number
+    };
+    
+    let revision_name = format!("{}#{}", last_issue.project, revision_issue_number);
+    let revision_version = format!("{}#{}", last_issue.project, revision_issue_number);
     let revision_sheet = last_sheet.to_string();
     api_client
         .create_revision(
@@ -156,7 +163,8 @@ async fn migrate<T: BytebaseApi>(
     target_database: &str,
     target_revision: &Revision,
     engine: &SQLDialect,
-) -> Option<(IssueName, SheetName)> {
+    target_version: u32,
+) -> Option<(IssueName, SheetName, bool)> {
     let mut last_applied = None;
 
     let mut changelogs = api_client
@@ -166,6 +174,7 @@ async fn migrate<T: BytebaseApi>(
         .into_iter()
         .filter(|c| {
             c.issue.number > target_revision.version.as_ref().map_or(0, |v| v.number)
+                && c.issue.number <= target_version
                 && c.changed_resources
                     .databases
                     .iter()
@@ -174,19 +183,24 @@ async fn migrate<T: BytebaseApi>(
         .collect::<Vec<_>>();
 
     changelogs.sort_by_key(|c| c.create_time);
+    let total_changelogs = changelogs.len();
+    let mut applied_count = 0;
 
     for cl in changelogs.into_iter() {
         match apply_changelog(api_client, target_env, target_database, &cl, engine).await {
             Ok(sheet) => {
                 println!("Applied changelog: {:?}", cl.name);
-                last_applied = Some((cl.issue, sheet.name));
+                last_applied = Some((cl.issue.clone(), sheet.name));
+                applied_count += 1;
             }
             Err(e) => {
                 eprintln!("Error applying changelog: {e}");
-                return last_applied;
+                let all_successful = applied_count == total_changelogs;
+                return last_applied.map(|(issue, sheet)| (issue, sheet, all_successful));
             }
         }
     }
 
-    last_applied
+    let all_successful = applied_count == total_changelogs;
+    last_applied.map(|(issue, sheet)| (issue, sheet, all_successful))
 }

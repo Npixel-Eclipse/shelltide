@@ -456,6 +456,110 @@ impl BytebaseApi for LiveApiClient {
             }
         }
     }
+
+    async fn get_databases(&self, instance: &str) -> Result<Vec<String>, AppError> {
+        let mut all_databases = Vec::new();
+        let mut page_token: Option<String> = None;
+        
+        loop {
+            let url = format!("{}/v1/instances/{}/databases", self.base_url, instance);
+            let mut request = self.client.get(&url).query(&[("pageSize", "100")]);
+            
+            if let Some(token) = &page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+            
+            let response = request.send().await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+
+            if !status.is_success() {
+                println!("Get databases failed - Status: {}, Response: {}", status, response_text);
+                return Err(AppError::ApiError(format!(
+                    "Get databases failed. Status: {}, Response: {}", status, response_text
+                )));
+            }
+
+            // Parse the response to extract database names and next page token
+            match serde_json::from_str::<serde_json::Value>(&response_text) {
+                Ok(response_value) => {
+                    if let Some(databases_array) = response_value.get("databases").and_then(|v| v.as_array()) {
+                        let database_names: Vec<String> = databases_array
+                            .iter()
+                            .filter_map(|db| {
+                                db.get("name")
+                                    .and_then(|name| name.as_str())
+                                    .map(|name_str| {
+                                        // Extract database name from full path like "instances/xxx/databases/bridge"
+                                        name_str.split('/').last().unwrap_or(name_str).to_string()
+                                    })
+                            })
+                            .collect();
+                        all_databases.extend(database_names);
+                    }
+                    
+                    // Check for next page token
+                    page_token = response_value
+                        .get("nextPageToken")
+                        .and_then(|token| token.as_str())
+                        .map(|s| s.to_string());
+                    
+                    // If no next page token, we're done
+                    if page_token.is_none() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to parse databases response - Status: {}, Response: {}", status, response_text);
+                    return Err(AppError::ApiError(format!("Failed to parse databases response: {}", e)));
+                }
+            }
+        }
+        
+        Ok(all_databases)
+    }
+
+    async fn get_latests_revisions_silent(&self, instance: &str, database: &str) -> Result<Revision, AppError> {
+        let url = format!(
+            "{}/v1/instances/{instance}/databases/{database}/revisions",
+            self.base_url,
+        );
+        let response = self.client.get(&url).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+        
+        if !status.is_success() {
+            // Don't print error messages for status command
+            return Err(AppError::ApiError(format!(
+                "Get latest revisions failed. Status: {}", status
+            )));
+        }
+        
+        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+            Ok(value) => value,
+            Err(e) => {
+                return Err(AppError::ApiError(format!(
+                    "Failed to parse latest revisions response: {}", e
+                )));
+            }
+        };
+        let revisions = response_value
+            .get("revisions")
+            .ok_or_else(|| AppError::ApiError("No revisions field found".to_string()))?
+            .as_array()
+            .ok_or_else(|| AppError::ApiError("No revisions array found".to_string()))?
+            .iter()
+            .filter_map(|r| serde_json::from_value::<Revision>(r.clone()).ok())
+            .collect::<Vec<Revision>>();
+        revisions
+            .iter()
+            .filter(|r| r.create_time.is_some())
+            .max_by_key(|r| r.create_time.as_ref().unwrap())
+            .cloned()
+            .ok_or_else(|| {
+                AppError::ApiError("No revisions with valid create_time found".to_string())
+            })
+    }
 }
 
 #[cfg(test)]
@@ -571,6 +675,14 @@ pub mod tests {
             _version: &str,
             _sheet: &str,
         ) -> Result<Revision, AppError> {
+            unimplemented!()
+        }
+        
+        async fn get_databases(&self, _instance: &str) -> Result<Vec<String>, AppError> {
+            Ok(vec!["bridge".to_string(), "admin".to_string()])
+        }
+        
+        async fn get_latests_revisions_silent(&self, _instance: &str, _database: &str) -> Result<Revision, AppError> {
             unimplemented!()
         }
     }

@@ -230,8 +230,9 @@ pub struct Database {
     pub name: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct ChangedResource {
+    #[serde(default)]
     pub databases: Vec<Database>,
 }
 
@@ -243,7 +244,7 @@ pub struct Changelog {
     #[serde(default)]
     pub statement: StringStatement,
     pub issue: IssueName,
-    #[serde(rename = "changedResources")]
+    #[serde(rename = "changedResources", default)]
     pub changed_resources: ChangedResource,
 }
 
