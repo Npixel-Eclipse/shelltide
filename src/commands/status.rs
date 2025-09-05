@@ -1,8 +1,9 @@
 use crate::api::traits::BytebaseApi;
+use crate::cli::StatusArgs;
 use crate::config;
 use anyhow::Result;
 
-pub async fn handle_status_command<T: BytebaseApi>(api_client: &T) -> Result<()> {
+pub async fn handle_status_command<T: BytebaseApi>(api_client: &mut T, args: StatusArgs) -> Result<()> {
     let config = config::load_config().await?;
 
     if config.environments.is_empty() {
@@ -10,27 +11,173 @@ pub async fn handle_status_command<T: BytebaseApi>(api_client: &T) -> Result<()>
         return Ok(());
     }
 
-    println!("{:<15} {:<20}", "ENVIRONMENT", "LATEST ISSUE");
-    println!("{:-<15} {:-<20}", "", "");
+    // Get default source environment for reference
+    let default_source_env = config.default_source_env.as_deref().unwrap_or("dev");
+    let default_env = config.environments.get(default_source_env)
+        .ok_or_else(|| anyhow::anyhow!("Default source environment '{}' not found in config", default_source_env))?;
 
-    for (name, env) in config.environments {
-        match api_client.get_done_issues(&env.project).await {
-            Ok(issues) => {
-                let latest_done_issue = issues.iter().max_by_key(|issue| issue.name.number);
+    // Get reference issue number from default environment
+    let reference_issue_number = match api_client.get_done_issues(&default_env.project).await {
+        Ok(issues) => {
+            issues.iter()
+                .max_by_key(|issue| issue.name.number)
+                .map(|issue| issue.name.number)
+                .unwrap_or(0)
+        }
+        Err(e) => {
+            println!("Error getting reference issues from {}: {}", default_source_env, e);
+            return Ok(());
+        }
+    };
 
-                if let Some(issue) = latest_done_issue {
-                    println!("{name:<15} #{:<19}", issue.name.number);
-                } else {
-                    println!("{name:<15} None");
-                }
+    // Parse filter if provided
+    let (filter_env, filter_db) = if let Some(filter) = &args.filter {
+        if filter.contains('/') {
+            let parts: Vec<&str> = filter.split('/').collect();
+            if parts.len() == 2 {
+                (Some(parts[0]), Some(parts[1]))
+            } else {
+                println!("Invalid filter format. Use '<env>/<database>' or just '<env>'");
+                return Ok(());
             }
-            Err(e) => {
-                println!("{name:<15} Error: {e}");
+        } else {
+            (Some(filter.as_str()), None)
+        }
+    } else {
+        (None, None)
+    };
+
+    // Get databases that exist in default environment using API
+    let default_databases = match api_client.get_databases(&default_env.instance).await {
+        Ok(databases) => databases,
+        Err(e) => {
+            println!("Error getting databases from {}: {}", default_source_env, e);
+            return Ok(());
+        }
+    };
+    
+    if default_databases.is_empty() {
+        println!("No databases found in default environment '{}'", default_source_env);
+        return Ok(());
+    }
+    
+    
+    // Collect database status information
+    let mut database_info = Vec::new();
+    
+    for (env_name, env) in &config.environments {
+        // Skip environment if filter is specified and doesn't match
+        if let Some(filter_env) = filter_env {
+            if env_name != filter_env {
+                continue;
+            }
+        }
+        
+        // Skip default environment when showing all environments (no filter)
+        if filter_env.is_none() && env_name == default_source_env {
+            continue;
+        }
+        
+        let databases_to_check: Vec<String> = if let Some(filter_db) = filter_db {
+            vec![filter_db.to_string()]
+        } else {
+            default_databases.clone()
+        };
+        
+        for database_name in &databases_to_check {
+            match api_client.get_latests_revisions_silent(&env.instance, database_name).await {
+                Ok(revision) => {
+                    if let Some(version) = revision.version.as_ref() {
+                        let current_issue = version.number;
+                        let status = if current_issue >= reference_issue_number {
+                            "UP TO DATE".to_string()
+                        } else {
+                            format!("#{}", current_issue)
+                        };
+                        
+                        database_info.push((
+                            format!("{}/{}", env.instance, database_name),
+                            env_name.clone(),
+                            status
+                        ));
+                    } else {
+                        // Revision exists but no version info
+                        database_info.push((
+                            format!("{}/{}", env.instance, database_name),
+                            env_name.clone(),
+                            "NO VERSION".to_string()
+                        ));
+                    }
+                }
+                Err(_) => {
+                    // Database doesn't exist in this environment - don't log error
+                    database_info.push((
+                        format!("{}/{}", env.instance, database_name),
+                        env_name.clone(),
+                        "NOT EXIST".to_string()
+                    ));
+                }
             }
         }
     }
 
+    // Sort by database name (extract from schema path) for consistent display
+    database_info.sort_by(|a, b| {
+        let db_a = a.0.split('/').last().unwrap_or(&a.0);
+        let db_b = b.0.split('/').last().unwrap_or(&b.0);
+        db_a.cmp(db_b).then_with(|| a.1.cmp(&b.1)) // secondary sort by environment name
+    });
+
+    // Display status table
+    print_status_table(&database_info);
+
+    println!("\nReference environment: {} (latest issue: #{})", default_source_env, reference_issue_number);
+
     Ok(())
+}
+
+fn print_status_table(database_info: &[(String, String, String)]) {
+    if database_info.is_empty() {
+        return;
+    }
+
+    // Calculate dynamic column widths
+    let mut max_schema_width = "SCHEMA".len();
+    let mut max_env_width = "ENVIRONMENT".len();
+    let max_status_width = "LATEST CHANGELOG".len();
+    
+    for (schema_path, env_name, _status) in database_info {
+        max_schema_width = max_schema_width.max(schema_path.len());
+        max_env_width = max_env_width.max(env_name.len());
+    }
+    
+    // Add some padding
+    max_schema_width += 1;
+    max_env_width += 1;
+
+    // Display headers with dynamic width
+    println!("{:<width1$} {:<width2$} {:<width3$}", 
+        "SCHEMA", "ENVIRONMENT", "LATEST CHANGELOG",
+        width1 = max_schema_width,
+        width2 = max_env_width,
+        width3 = max_status_width
+    );
+    println!("{:-<width1$} {:-<width2$} {:-<width3$}", 
+        "", "", "",
+        width1 = max_schema_width,
+        width2 = max_env_width,
+        width3 = max_status_width
+    );
+
+    // Display database-level status with dynamic width
+    for (schema_path, env_name, status) in database_info {
+        println!("{:<width1$} {:<width2$} {:<width3$}", 
+            schema_path, env_name, status,
+            width1 = max_schema_width,
+            width2 = max_env_width,
+            width3 = max_status_width
+        );
+    }
 }
 
 #[cfg(test)]
@@ -124,7 +271,7 @@ mod tests {
                 }],
             );
 
-            let fake_client = FakeApiClient {
+            let mut fake_client = FakeApiClient {
                 projects: projects_data,
             };
 
@@ -132,7 +279,8 @@ mod tests {
             // Note: This test doesn't capture stdout to verify the table format,
             // but it ensures the command runs to completion without panicking,
             // which validates the core logic.
-            let result = handle_status_command(&fake_client).await;
+            let status_args = crate::cli::StatusArgs { filter: None };
+            let result = handle_status_command(&mut fake_client, status_args).await;
 
             // 4. Assert: Check that the command succeeded
             assert!(result.is_ok());

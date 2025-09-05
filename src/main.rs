@@ -50,9 +50,9 @@ async fn main() -> Result<()> {
             let client = get_client().await?;
             commands::migrate::handle_migrate_command(args, &client).await?;
         }
-        Commands::Status => {
-            let client = get_client().await?;
-            commands::status::handle_status_command(&client).await?;
+        Commands::Status(args) => {
+            let mut client = get_client().await?;
+            commands::status::handle_status_command(&mut client, args).await?;
         }
         Commands::Completion(args) => {
             commands::completion::handle_completion_command(args.shell)?;
