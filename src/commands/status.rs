@@ -123,7 +123,6 @@ pub async fn handle_status_command_with_config<
                             status,
                         ));
                     } else {
-                        // Revision exists but no version info
                         database_info.push((
                             format!("{}/{}", env.instance, database_name),
                             env_name.clone(),
@@ -132,7 +131,6 @@ pub async fn handle_status_command_with_config<
                     }
                 }
                 Err(_) => {
-                    // Database doesn't exist in this environment - don't log error
                     database_info.push((
                         format!("{}/{}", env.instance, database_name),
                         env_name.clone(),
@@ -147,7 +145,7 @@ pub async fn handle_status_command_with_config<
     database_info.sort_by(|a, b| {
         let db_a = a.0.split('/').next_back().unwrap_or(&a.0);
         let db_b = b.0.split('/').next_back().unwrap_or(&b.0);
-        db_a.cmp(db_b).then_with(|| a.1.cmp(&b.1)) // secondary sort by environment name
+        db_a.cmp(db_b).then_with(|| a.1.cmp(&b.1))
     });
 
     // Display status table
@@ -175,11 +173,8 @@ fn print_status_table(database_info: &[(String, String, String)]) {
         max_env_width = max_env_width.max(env_name.len());
     }
 
-    // Add some padding
     max_schema_width += 1;
     max_env_width += 1;
-
-    // Display headers with dynamic width
     println!(
         "{:<width1$} {:<width2$} {:<width3$}",
         "SCHEMA",
@@ -199,7 +194,6 @@ fn print_status_table(database_info: &[(String, String, String)]) {
         width3 = max_status_width
     );
 
-    // Display database-level status with dynamic width
     for (schema_path, env_name, status) in database_info {
         println!(
             "{schema_path:<max_schema_width$} {env_name:<max_env_width$} {status:<max_status_width$}"
@@ -236,14 +230,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let temp_path = temp_dir.path().to_path_buf();
         test_body(temp_path).await;
-        // No HOME manipulation needed since we use TestConfig
     }
 
     #[tokio::test]
     async fn test_status_command() {
         run_in_temp_home(|temp_path| async move {
-            // 1. Setup: Create a fake config with two environments
-            // Use test config instead of real config
             let temp_config = crate::config::TestConfig {
                 test_dir: temp_path,
             };
@@ -270,8 +261,6 @@ mod tests {
                 },
             );
             temp_config.save_config(&test_config).await.unwrap();
-
-            // 2. Setup: Create a fake API client with mock data
             let mut projects_data = HashMap::new();
             projects_data.insert(
                 "dev-project".to_string(),
@@ -295,16 +284,11 @@ mod tests {
                 projects: projects_data,
             };
 
-            // 3. Execute: Run the status command
-            // Note: This test doesn't capture stdout to verify the table format,
-            // but it ensures the command runs to completion without panicking,
-            // which validates the core logic.
             let status_args = crate::cli::StatusArgs { filter: None };
             let result =
                 handle_status_command_with_config(&mut fake_client, status_args, &temp_config)
                     .await;
 
-            // 4. Assert: Check that the command succeeded
             assert!(result.is_ok());
         })
         .await;

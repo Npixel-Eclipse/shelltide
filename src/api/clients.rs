@@ -110,7 +110,6 @@ impl LiveApiClient {
         self.ensure_authenticated_with_config(&config_ops).await
     }
 
-    /// Internal function for dependency injection
     pub async fn ensure_authenticated_with_config<C: ConfigOperations>(
         &mut self,
         config_ops: &C,
@@ -553,7 +552,6 @@ impl BytebaseApi for LiveApiClient {
         let response_text = response.text().await?;
 
         if !status.is_success() {
-            // Don't print error messages for status command
             return Err(AppError::ApiError(format!(
                 "Get latest revisions failed. Status: {status}"
             )));
@@ -709,7 +707,7 @@ pub mod tests {
                 create_time: Some(chrono::Utc::now()),
                 version: Some(RevisionVersion {
                     project_name: "fake-project".to_string(),
-                    number: 100, // Fake revision number for testing
+                    number: 100,
                 }),
             })
         }

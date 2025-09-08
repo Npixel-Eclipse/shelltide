@@ -80,7 +80,6 @@ impl ConfigOperations for ProductionConfig {
 }
 
 #[cfg(test)]
-/// Test implementation of ConfigOperations
 pub struct TestConfig {
     pub test_dir: PathBuf,
 }
@@ -104,13 +103,11 @@ fn get_config_dir() -> Result<PathBuf> {
 }
 
 #[cfg(test)]
-/// Test-only function that returns a config directory based on a provided path.
 fn get_test_config_dir(test_home: &Path) -> PathBuf {
     test_home.join(".shelltide")
 }
 
 #[cfg(test)]
-/// Test-only function that returns the config file path for tests.
 fn get_test_config_path(test_home: &Path) -> PathBuf {
     get_test_config_dir(test_home).join("config.json")
 }
@@ -161,7 +158,6 @@ pub async fn save_config(config: &AppConfig) -> Result<()> {
 }
 
 #[cfg(test)]
-/// Test-only function to load config from a specific test directory.
 pub async fn load_test_config(test_home: &Path) -> Result<AppConfig> {
     let config_path = get_test_config_path(test_home);
     if !config_path.exists() {
@@ -179,7 +175,6 @@ pub async fn load_test_config(test_home: &Path) -> Result<AppConfig> {
 }
 
 #[cfg(test)]
-/// Test-only function to save config to a specific test directory.
 pub async fn save_test_config(config: &AppConfig, test_home: &Path) -> Result<()> {
     let config_path = get_test_config_path(test_home);
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new(""));

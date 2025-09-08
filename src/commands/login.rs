@@ -9,7 +9,6 @@ pub async fn login(args: LoginArgs) -> Result<()> {
     login_with_config(args, &config_ops).await
 }
 
-/// Internal function for dependency injection
 pub async fn login_with_config<C: ConfigOperations>(args: LoginArgs, config_ops: &C) -> Result<()> {
     println!("Attempting to log in to {}...", &args.url);
     let login_response = get_access_token(
@@ -25,7 +24,7 @@ pub async fn login_with_config<C: ConfigOperations>(args: LoginArgs, config_ops:
     config.credentials = Some(Credentials {
         url: args.url,
         service_account: args.service_account.clone(),
-        service_key: Some(args.service_key.clone()), // Store for potential token refresh
+        service_key: Some(args.service_key.clone()),
         access_token: login_response.token,
     });
     config_ops.save_config(&config).await?;
