@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -57,10 +58,61 @@ pub struct Environment {
     pub instance: String,
 }
 
+/// Trait for configuration operations to enable dependency injection
+#[async_trait]
+pub trait ConfigOperations {
+    async fn load_config(&self) -> Result<AppConfig>;
+    async fn save_config(&self, config: &AppConfig) -> Result<()>;
+}
+
+/// Production implementation of ConfigOperations
+pub struct ProductionConfig;
+
+#[async_trait]
+impl ConfigOperations for ProductionConfig {
+    async fn load_config(&self) -> Result<AppConfig> {
+        load_config().await
+    }
+
+    async fn save_config(&self, config: &AppConfig) -> Result<()> {
+        save_config(config).await
+    }
+}
+
+#[cfg(test)]
+/// Test implementation of ConfigOperations
+pub struct TestConfig {
+    pub test_dir: PathBuf,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl ConfigOperations for TestConfig {
+    async fn load_config(&self) -> Result<AppConfig> {
+        load_test_config(&self.test_dir).await
+    }
+
+    async fn save_config(&self, config: &AppConfig) -> Result<()> {
+        save_test_config(config, &self.test_dir).await
+    }
+}
+
 /// Returns the path to the shelltide configuration directory, `~/.shelltide`.
 fn get_config_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir().context("Failed to find home directory")?;
     Ok(home_dir.join(".shelltide"))
+}
+
+#[cfg(test)]
+/// Test-only function that returns a config directory based on a provided path.
+fn get_test_config_dir(test_home: &Path) -> PathBuf {
+    test_home.join(".shelltide")
+}
+
+#[cfg(test)]
+/// Test-only function that returns the config file path for tests.
+fn get_test_config_path(test_home: &Path) -> PathBuf {
+    get_test_config_dir(test_home).join("config.json")
 }
 
 /// Returns the full path to the configuration file, `~/.shelltide/config.json`.
@@ -90,6 +142,46 @@ pub async fn load_config() -> Result<AppConfig> {
 /// It will create the necessary directory and file if they don't exist.
 pub async fn save_config(config: &AppConfig) -> Result<()> {
     let config_path = get_config_path()?;
+    let config_dir = config_path.parent().unwrap_or_else(|| Path::new(""));
+
+    if !config_dir.exists() {
+        fs::create_dir_all(config_dir)
+            .await
+            .with_context(|| format!("Failed to create config directory at {config_dir:?}"))?;
+    }
+
+    let content = serde_json::to_string_pretty(config)
+        .context("Failed to serialize configuration to JSON")?;
+
+    fs::write(&config_path, content)
+        .await
+        .with_context(|| format!("Failed to write config file to {config_path:?}"))?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+/// Test-only function to load config from a specific test directory.
+pub async fn load_test_config(test_home: &Path) -> Result<AppConfig> {
+    let config_path = get_test_config_path(test_home);
+    if !config_path.exists() {
+        return Ok(AppConfig::default());
+    }
+
+    let content = fs::read_to_string(&config_path)
+        .await
+        .with_context(|| format!("Failed to read config file at {config_path:?}"))?;
+
+    let config: AppConfig = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse config file at {config_path:?}"))?;
+
+    Ok(config)
+}
+
+#[cfg(test)]
+/// Test-only function to save config to a specific test directory.
+pub async fn save_test_config(config: &AppConfig, test_home: &Path) -> Result<()> {
+    let config_path = get_test_config_path(test_home);
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new(""));
 
     if !config_dir.exists() {

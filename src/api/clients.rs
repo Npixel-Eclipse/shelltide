@@ -5,7 +5,7 @@ use crate::api::types::{
     PostIssuesResponse, PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision,
     SheetName, SheetRequest, SqlCheckRequest,
 };
-use crate::config::Credentials;
+use crate::config::{ConfigOperations, Credentials};
 use crate::error::AppError;
 use async_trait::async_trait;
 use reqwest::header;
@@ -105,6 +105,16 @@ impl LiveApiClient {
 
     /// Ensures the client is authenticated with a valid token, refreshing if necessary
     pub async fn ensure_authenticated(&mut self) -> Result<(), AppError> {
+        use crate::config::ProductionConfig;
+        let config_ops = ProductionConfig;
+        self.ensure_authenticated_with_config(&config_ops).await
+    }
+
+    /// Internal function for dependency injection
+    pub async fn ensure_authenticated_with_config<C: ConfigOperations>(
+        &mut self,
+        config_ops: &C,
+    ) -> Result<(), AppError> {
         // Token validation by trying to list projects (most basic authenticated endpoint)
         let url = format!("{}/v1/projects", self.base_url);
         let response = self.client.get(&url).send().await?;
@@ -115,7 +125,7 @@ impl LiveApiClient {
             println!("Token expired, attempting to refresh...");
 
             // Load current credentials
-            let config = crate::config::load_config().await?;
+            let config = config_ops.load_config().await?;
             let credentials = config.get_credentials()?;
 
             // Check if we have service_key for refresh
@@ -130,7 +140,7 @@ impl LiveApiClient {
 
                 let mut updated_config = config;
                 updated_config.credentials = Some(updated_credentials.clone());
-                crate::config::save_config(&updated_config).await?;
+                config_ops.save_config(&updated_config).await?;
 
                 // Update client with new token
                 self.login(&updated_credentials)?;
@@ -460,30 +470,32 @@ impl BytebaseApi for LiveApiClient {
     async fn get_databases(&self, instance: &str) -> Result<Vec<String>, AppError> {
         let mut all_databases = Vec::new();
         let mut page_token: Option<String> = None;
-        
+
         loop {
             let url = format!("{}/v1/instances/{}/databases", self.base_url, instance);
             let mut request = self.client.get(&url).query(&[("pageSize", "100")]);
-            
+
             if let Some(token) = &page_token {
                 request = request.query(&[("pageToken", token)]);
             }
-            
+
             let response = request.send().await?;
             let status = response.status();
             let response_text = response.text().await?;
 
             if !status.is_success() {
-                println!("Get databases failed - Status: {}, Response: {}", status, response_text);
+                println!("Get databases failed - Status: {status}, Response: {response_text}");
                 return Err(AppError::ApiError(format!(
-                    "Get databases failed. Status: {}, Response: {}", status, response_text
+                    "Get databases failed. Status: {status}, Response: {response_text}"
                 )));
             }
 
             // Parse the response to extract database names and next page token
             match serde_json::from_str::<serde_json::Value>(&response_text) {
                 Ok(response_value) => {
-                    if let Some(databases_array) = response_value.get("databases").and_then(|v| v.as_array()) {
+                    if let Some(databases_array) =
+                        response_value.get("databases").and_then(|v| v.as_array())
+                    {
                         let database_names: Vec<String> = databases_array
                             .iter()
                             .filter_map(|db| {
@@ -491,35 +503,47 @@ impl BytebaseApi for LiveApiClient {
                                     .and_then(|name| name.as_str())
                                     .map(|name_str| {
                                         // Extract database name from full path like "instances/xxx/databases/bridge"
-                                        name_str.split('/').last().unwrap_or(name_str).to_string()
+                                        name_str
+                                            .split('/')
+                                            .next_back()
+                                            .unwrap_or(name_str)
+                                            .to_string()
                                     })
                             })
                             .collect();
                         all_databases.extend(database_names);
                     }
-                    
+
                     // Check for next page token
                     page_token = response_value
                         .get("nextPageToken")
                         .and_then(|token| token.as_str())
                         .map(|s| s.to_string());
-                    
+
                     // If no next page token, we're done
                     if page_token.is_none() {
                         break;
                     }
                 }
                 Err(e) => {
-                    println!("Failed to parse databases response - Status: {}, Response: {}", status, response_text);
-                    return Err(AppError::ApiError(format!("Failed to parse databases response: {}", e)));
+                    println!(
+                        "Failed to parse databases response - Status: {status}, Response: {response_text}"
+                    );
+                    return Err(AppError::ApiError(format!(
+                        "Failed to parse databases response: {e}"
+                    )));
                 }
             }
         }
-        
+
         Ok(all_databases)
     }
 
-    async fn get_latests_revisions_silent(&self, instance: &str, database: &str) -> Result<Revision, AppError> {
+    async fn get_latests_revisions_silent(
+        &self,
+        instance: &str,
+        database: &str,
+    ) -> Result<Revision, AppError> {
         let url = format!(
             "{}/v1/instances/{instance}/databases/{database}/revisions",
             self.base_url,
@@ -527,19 +551,19 @@ impl BytebaseApi for LiveApiClient {
         let response = self.client.get(&url).send().await?;
         let status = response.status();
         let response_text = response.text().await?;
-        
+
         if !status.is_success() {
             // Don't print error messages for status command
             return Err(AppError::ApiError(format!(
-                "Get latest revisions failed. Status: {}", status
+                "Get latest revisions failed. Status: {status}"
             )));
         }
-        
+
         let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
             Ok(value) => value,
             Err(e) => {
                 return Err(AppError::ApiError(format!(
-                    "Failed to parse latest revisions response: {}", e
+                    "Failed to parse latest revisions response: {e}"
                 )));
             }
         };
@@ -576,19 +600,12 @@ pub mod tests {
                 PostPlansResponse, PostSheetsResponse, Project, Revision, SheetName, SheetRequest,
             },
         },
-        config::Credentials,
         error::AppError,
     };
 
     #[derive(Debug, Default)]
     pub struct FakeApiClient {
         pub projects: HashMap<String, Vec<Issue>>,
-    }
-
-    impl FakeApiClient {
-        pub fn login(&mut self, _credentials: &Credentials) -> Result<(), AppError> {
-            Ok(())
-        }
     }
 
     #[async_trait]
@@ -677,13 +694,24 @@ pub mod tests {
         ) -> Result<Revision, AppError> {
             unimplemented!()
         }
-        
+
         async fn get_databases(&self, _instance: &str) -> Result<Vec<String>, AppError> {
             Ok(vec!["bridge".to_string(), "admin".to_string()])
         }
-        
-        async fn get_latests_revisions_silent(&self, _instance: &str, _database: &str) -> Result<Revision, AppError> {
-            unimplemented!()
+
+        async fn get_latests_revisions_silent(
+            &self,
+            _instance: &str,
+            _database: &str,
+        ) -> Result<Revision, AppError> {
+            use crate::api::types::RevisionVersion;
+            Ok(Revision {
+                create_time: Some(chrono::Utc::now()),
+                version: Some(RevisionVersion {
+                    project_name: "fake-project".to_string(),
+                    number: 100, // Fake revision number for testing
+                }),
+            })
         }
     }
 }

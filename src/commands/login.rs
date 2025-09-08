@@ -1,10 +1,16 @@
 use crate::api::clients::get_access_token;
 use crate::cli::LoginArgs;
-use crate::config::{self, Credentials};
+use crate::config::{ConfigOperations, Credentials, ProductionConfig};
 use anyhow::Result;
 
 /// Handles the `login` command.
 pub async fn login(args: LoginArgs) -> Result<()> {
+    let config_ops = ProductionConfig;
+    login_with_config(args, &config_ops).await
+}
+
+/// Internal function for dependency injection
+pub async fn login_with_config<C: ConfigOperations>(args: LoginArgs, config_ops: &C) -> Result<()> {
     println!("Attempting to log in to {}...", &args.url);
     let login_response = get_access_token(
         &args.url,
@@ -14,7 +20,7 @@ pub async fn login(args: LoginArgs) -> Result<()> {
     .await?;
 
     println!("Successfully authenticated. Saving credentials...");
-    let mut config = config::load_config().await.unwrap_or_default();
+    let mut config = config_ops.load_config().await.unwrap_or_default();
 
     config.credentials = Some(Credentials {
         url: args.url,
@@ -22,7 +28,7 @@ pub async fn login(args: LoginArgs) -> Result<()> {
         service_key: Some(args.service_key.clone()), // Store for potential token refresh
         access_token: login_response.token,
     });
-    config::save_config(&config).await?;
+    config_ops.save_config(&config).await?;
 
     println!("Credentials saved successfully.");
 
