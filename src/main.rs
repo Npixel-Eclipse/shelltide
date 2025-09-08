@@ -57,6 +57,9 @@ async fn main() -> Result<()> {
         Commands::Completion(args) => {
             commands::completion::handle_completion_command(args.shell)?;
         }
+        Commands::Extract(args) => {
+            commands::extract::handle_extract(args).await?;
+        }
     }
 
     Ok(())

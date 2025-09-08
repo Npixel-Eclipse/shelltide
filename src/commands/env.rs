@@ -1,23 +1,34 @@
 use crate::api::traits::BytebaseApi;
 use crate::cli::EnvCommand;
-use crate::config::{self, Environment};
+use crate::config::{ConfigOperations, Environment, ProductionConfig};
 use anyhow::Result;
 
 /// Handles the `env` command by creating a live API client and dispatching to the appropriate sub-command.
 pub async fn handle_env_command<T: BytebaseApi>(command: EnvCommand, client: &T) -> Result<()> {
+    let config_ops = ProductionConfig;
+    handle_env_command_with_config(command, client, &config_ops).await
+}
+
+/// Internal function that accepts dependency-injected config operations
+pub async fn handle_env_command_with_config<T: BytebaseApi, C: ConfigOperations>(
+    command: EnvCommand,
+    client: &T,
+    config_ops: &C,
+) -> Result<()> {
     match command {
         EnvCommand::Add {
             name,
             project,
             instance,
-        } => add_env(client, &name, &project, &instance).await,
-        EnvCommand::List => list_envs().await,
-        EnvCommand::Remove { name } => remove_env(&name).await,
+        } => add_env_with_config(client, config_ops, &name, &project, &instance).await,
+        EnvCommand::List => list_envs_with_config(config_ops).await,
+        EnvCommand::Remove { name } => remove_env_with_config(config_ops, &name).await,
     }
 }
 
-async fn add_env<T: BytebaseApi>(
+async fn add_env_with_config<T: BytebaseApi, C: ConfigOperations>(
     api_client: &T,
+    config_ops: &C,
     name: &str,
     project: &str,
     instance: &str,
@@ -40,20 +51,20 @@ async fn add_env<T: BytebaseApi>(
         }
     }
 
-    let mut config = config::load_config().await?;
+    let mut config = config_ops.load_config().await?;
     let new_env = Environment {
         project: project.to_string(),
         instance: instance.to_string(),
     };
     config.environments.insert(name.to_string(), new_env);
-    config::save_config(&config).await?;
+    config_ops.save_config(&config).await?;
 
     println!("\nSuccessfully added environment '{name}' for project '{project}'.");
     Ok(())
 }
 
-async fn list_envs() -> Result<()> {
-    let config = config::load_config().await?;
+async fn list_envs_with_config<C: ConfigOperations>(config_ops: &C) -> Result<()> {
+    let config = config_ops.load_config().await?;
     if config.environments.is_empty() {
         println!("No environments configured. Use `env add` to add one.");
         return Ok(());
@@ -67,10 +78,10 @@ async fn list_envs() -> Result<()> {
     Ok(())
 }
 
-async fn remove_env(name: &str) -> Result<()> {
-    let mut config = config::load_config().await?;
+async fn remove_env_with_config<C: ConfigOperations>(config_ops: &C, name: &str) -> Result<()> {
+    let mut config = config_ops.load_config().await?;
     if config.environments.remove(name).is_some() {
-        config::save_config(&config).await?;
+        config_ops.save_config(&config).await?;
         println!("Removed environment '{name}'.");
     } else {
         println!("Error: Environment '{name}' not found.");
@@ -84,78 +95,86 @@ mod tests {
 
     use super::*;
     use crate::api::clients::tests::FakeApiClient;
-    use crate::config::{self, Credentials};
+    use crate::config::{self, Credentials, TestConfig};
     use tempfile::tempdir;
 
-    async fn run_in_temp_home<F, Fut>(test_body: F)
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+    #[tokio::test]
+    async fn test_add_existing_project() {
+        // Test with completely isolated config using dependency injection
         let temp_dir = tempdir().unwrap();
-        let home_path = temp_dir.path();
-        let original_home = std::env::var("HOME");
-        unsafe {
-            std::env::set_var("HOME", home_path);
-        }
+        let test_config = TestConfig {
+            test_dir: temp_dir.path().to_path_buf(),
+        };
 
-        // Pre-seed the config with login credentials for tests.
-        let mut config = config::load_config().await.unwrap();
+        // Initialize test config with credentials
+        let mut config = config::AppConfig::default();
         config.credentials = Some(Credentials {
             url: "https://fake-url.com".to_string(),
             service_account: "fake-service-account".to_string(),
             service_key: Some("fake-service-key".to_string()),
             access_token: "fake-access-token".to_string(),
         });
-        config::save_config(&config).await.unwrap();
+        test_config.save_config(&config).await.unwrap();
 
-        test_body().await;
+        // Test the add_env function with dependency injection
+        let fake_client = FakeApiClient {
+            projects: HashMap::new(),
+        };
 
-        unsafe {
-            if let Ok(val) = original_home {
-                std::env::set_var("HOME", val);
-            } else {
-                std::env::remove_var("HOME");
-            }
-        }
-    }
+        let add_command = EnvCommand::Add {
+            name: "dev".to_string(),
+            project: "existing-project".to_string(),
+            instance: "existing-instance".to_string(),
+        };
 
-    #[tokio::test]
-    async fn test_add_existing_project() {
-        run_in_temp_home(|| async {
-            let fake_client = FakeApiClient {
-                projects: HashMap::new(),
-            };
-            let add_command = EnvCommand::Add {
-                name: "dev".to_string(),
-                project: "existing-project".to_string(),
-                instance: "existing-instance".to_string(),
-            };
+        // This should now work completely in isolation
+        let result = handle_env_command_with_config(add_command, &fake_client, &test_config).await;
+        assert!(result.is_ok());
 
-            let result = handle_env_command(add_command, &fake_client).await;
-            assert!(result.is_ok());
-
-            let config = config::load_config().await.unwrap();
-            assert!(config.environments.contains_key("dev"));
-        })
-        .await;
+        // Verify the environment was added correctly to the test config
+        let loaded_config = test_config.load_config().await.unwrap();
+        assert!(loaded_config.environments.contains_key("dev"));
+        assert_eq!(
+            loaded_config.environments.get("dev").unwrap().project,
+            "existing-project"
+        );
     }
 
     #[tokio::test]
     async fn test_add_non_existing_project() {
-        run_in_temp_home(|| async {
-            let fake_client = FakeApiClient {
-                projects: HashMap::new(),
-            };
-            let add_command = EnvCommand::Add {
-                name: "dev".to_string(),
-                project: "non-existing-project".to_string(),
-                instance: "existing-instance".to_string(),
-            };
+        // Test with completely isolated config using dependency injection
+        let temp_dir = tempdir().unwrap();
+        let test_config = TestConfig {
+            test_dir: temp_dir.path().to_path_buf(),
+        };
 
-            let result = handle_env_command(add_command, &fake_client).await;
-            assert!(result.is_err());
-        })
-        .await;
+        // Initialize test config with credentials
+        let mut config = config::AppConfig::default();
+        config.credentials = Some(Credentials {
+            url: "https://fake-url.com".to_string(),
+            service_account: "fake-service-account".to_string(),
+            service_key: Some("fake-service-key".to_string()),
+            access_token: "fake-access-token".to_string(),
+        });
+        test_config.save_config(&config).await.unwrap();
+
+        // Test that adding non-existing project fails
+        let fake_client = FakeApiClient {
+            projects: HashMap::new(),
+        };
+
+        let add_command = EnvCommand::Add {
+            name: "dev".to_string(),
+            project: "non-existing-project".to_string(),
+            instance: "existing-instance".to_string(),
+        };
+
+        // This should fail because the project doesn't exist in FakeApiClient
+        let result = handle_env_command_with_config(add_command, &fake_client, &test_config).await;
+        assert!(result.is_err());
+
+        // Verify no environment was added to the test config
+        let loaded_config = test_config.load_config().await.unwrap();
+        assert!(!loaded_config.environments.contains_key("dev"));
     }
 }

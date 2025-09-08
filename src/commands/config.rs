@@ -2,19 +2,32 @@ use anyhow::Result;
 
 use crate::{
     cli::ConfigCommand,
-    config::{self},
+    config::{ConfigOperations, ProductionConfig},
 };
 
 /// Handles the `config` command.
 pub async fn config(command: ConfigCommand) -> Result<()> {
+    let config_ops = ProductionConfig;
+    config_with_ops(command, &config_ops).await
+}
+
+/// Internal function for dependency injection
+pub async fn config_with_ops<C: ConfigOperations>(
+    command: ConfigCommand,
+    config_ops: &C,
+) -> Result<()> {
     match command {
-        ConfigCommand::Set { key, value } => set_config(&key, value).await,
-        ConfigCommand::Get { key } => get_config(&key).await,
+        ConfigCommand::Set { key, value } => set_config_with_ops(config_ops, &key, value).await,
+        ConfigCommand::Get { key } => get_config_with_ops(config_ops, &key).await,
     }
 }
 
-async fn set_config(key: &str, value: String) -> Result<()> {
-    let mut config = config::load_config().await?;
+async fn set_config_with_ops<C: ConfigOperations>(
+    config_ops: &C,
+    key: &str,
+    value: String,
+) -> Result<()> {
+    let mut config = config_ops.load_config().await?;
 
     match key {
         "default.source_env" => {
@@ -36,12 +49,12 @@ async fn set_config(key: &str, value: String) -> Result<()> {
         }
     }
 
-    config::save_config(&config).await?;
+    config_ops.save_config(&config).await?;
     Ok(())
 }
 
-async fn get_config(key: &str) -> Result<()> {
-    let config = config::load_config().await?;
+async fn get_config_with_ops<C: ConfigOperations>(config_ops: &C, key: &str) -> Result<()> {
+    let config = config_ops.load_config().await?;
 
     match key {
         "default.source_env" => {
@@ -67,7 +80,6 @@ mod tests {
     use crate::api::clients::tests::FakeApiClient;
     use crate::cli::{ConfigCommand, EnvCommand};
     use crate::commands;
-    use crate::config::load_config;
     use tempfile::tempdir;
 
     // Helper function to create a temporary home directory for testing.
@@ -106,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_set_and_get() {
-        run_in_temp_home(|_home_path| async {
+        run_in_temp_home(|_home_path| async move {
             // 1. Test setting a value.
             // Create test environment first
             let fake_client = FakeApiClient {
@@ -117,7 +129,16 @@ mod tests {
                 project: "existing-project".to_string(),
                 instance: "test-instance".to_string(),
             };
-            let result = commands::env::handle_env_command(env_command, &fake_client).await;
+            // Create test config for isolated testing
+            let test_config = crate::config::TestConfig {
+                test_dir: _home_path.clone(),
+            };
+            let result = commands::env::handle_env_command_with_config(
+                env_command,
+                &fake_client,
+                &test_config,
+            )
+            .await;
             assert!(
                 result.is_ok(),
                 "Adding environment should succeed: {:?}",
@@ -129,7 +150,7 @@ mod tests {
                 key: key.clone(),
                 value: value.clone(),
             };
-            let result = config(set_command).await;
+            let result = config_with_ops(set_command, &test_config).await;
             assert!(
                 result.is_ok(),
                 "Setting config should succeed: {:?}",
@@ -137,7 +158,7 @@ mod tests {
             );
 
             // 2. Verify by loading the config directly.
-            let loaded_config = load_config().await.unwrap();
+            let loaded_config = test_config.load_config().await.unwrap();
             assert_eq!(
                 loaded_config.default_source_env,
                 Some(value),
@@ -148,7 +169,7 @@ mod tests {
             // Note: This test doesn't capture stdout. It only checks if the command runs
             // without errors. A more advanced test would capture and assert the output.
             let get_command = ConfigCommand::Get { key };
-            let result = config(get_command).await;
+            let result = config_with_ops(get_command, &test_config).await;
             assert!(result.is_ok(), "Getting config should succeed");
         })
         .await;
@@ -156,12 +177,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_unset_key() {
-        run_in_temp_home(|_home_path| async {
+        run_in_temp_home(|_home_path| async move {
+            let test_config = crate::config::TestConfig {
+                test_dir: _home_path.clone(),
+            };
             let get_command = ConfigCommand::Get {
                 key: "default.source_env".to_string(),
             };
             // This should run without error and print a message.
-            let result = config(get_command).await;
+            let result = config_with_ops(get_command, &test_config).await;
             assert!(result.is_ok());
         })
         .await;

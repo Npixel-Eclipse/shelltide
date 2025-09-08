@@ -3,7 +3,7 @@ use crate::api::types::{
     Changelog, IssueName, PostSheetsResponse, Revision, SQLDialect, SheetName, SheetRequest,
 };
 use crate::cli::MigrateArgs;
-use crate::config::{self, Environment};
+use crate::config::{ConfigOperations, Environment, ProductionConfig};
 use crate::error::AppError;
 use anyhow::Result;
 
@@ -11,7 +11,16 @@ pub async fn handle_migrate_command<T: BytebaseApi>(
     args: MigrateArgs,
     api_client: &T,
 ) -> Result<()> {
-    let config = config::load_config().await?;
+    let config_ops = ProductionConfig;
+    handle_migrate_command_with_config(args, api_client, &config_ops).await
+}
+
+pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperations>(
+    args: MigrateArgs,
+    api_client: &T,
+    config_ops: &C,
+) -> Result<()> {
+    let config = config_ops.load_config().await?;
 
     // Get default source environment - must be configured
     let default_source_env = config.default_source_env.as_deref()
@@ -164,6 +173,7 @@ async fn apply_changelog<T: BytebaseApi>(
     Ok(sheet_response)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn migrate<T: BytebaseApi>(
     api_client: &T,
     source_env: &Environment,
