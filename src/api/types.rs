@@ -246,6 +246,16 @@ pub struct Changelog {
     pub issue: IssueName,
     #[serde(rename = "changedResources", default)]
     pub changed_resources: ChangedResource,
+    #[serde(rename = "type", default)]
+    pub changelog_type: Option<ChangelogType>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ChangelogType {
+    Migrate,
+    Baseline,
+    Data,
 }
 
 /// All supported SQL dialects. ref: https://docs.bytebase.com/api-reference/sheetservice/post-v1projects-sheets#body-engine
