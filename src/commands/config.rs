@@ -11,7 +11,6 @@ pub async fn config(command: ConfigCommand) -> Result<()> {
     config_with_ops(command, &config_ops).await
 }
 
-/// Internal function for dependency injection
 pub async fn config_with_ops<C: ConfigOperations>(
     command: ConfigCommand,
     config_ops: &C,

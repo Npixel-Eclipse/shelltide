@@ -9,7 +9,6 @@ pub async fn handle_env_command<T: BytebaseApi>(command: EnvCommand, client: &T)
     handle_env_command_with_config(command, client, &config_ops).await
 }
 
-/// Internal function that accepts dependency-injected config operations
 pub async fn handle_env_command_with_config<T: BytebaseApi, C: ConfigOperations>(
     command: EnvCommand,
     client: &T,
