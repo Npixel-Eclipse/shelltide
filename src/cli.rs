@@ -28,6 +28,9 @@ pub enum Commands {
 
     /// Generate shell completions
     Completion(CompletionArgs),
+
+    /// Extract changelog scripts from a database
+    Extract(ExtractArgs),
 }
 
 // --- Argument Structs ---
@@ -147,4 +150,18 @@ pub struct CompletionArgs {
 pub struct StatusArgs {
     /// Optional filter for specific environment/database as "<env>/<database>" or just "<env>"
     pub filter: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct ExtractArgs {
+    /// Target database as "<env>/<database>"
+    pub target: EnvDb,
+
+    /// Starting issue number (inclusive)
+    #[arg(long)]
+    pub from: Option<u32>,
+
+    /// Ending issue number (inclusive)
+    #[arg(long)]
+    pub to: Option<u32>,
 }
