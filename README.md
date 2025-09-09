@@ -17,23 +17,51 @@
 
 ## 동작 원리
 
-### 마이그레이션 추적
-- `shelltide`는 Bytebase 리비전을 사용하여 마이그레이션 상태를 추적합니다
-- 각 데이터베이스 리비전에는 마지막으로 적용된 이슈 번호가 저장됩니다
-- 마이그레이션 시 소스와 대상 리비전을 비교하여 적용할 이슈를 결정합니다
-- 더 새로운 이슈(높은 이슈 번호)만 마이그레이션 계획에 포함됩니다
+### Bytebase와의 통합
+`shelltide`는 Bytebase API를 활용하여 데이터베이스 마이그레이션을 자동화합니다. Bytebase의 다음 구성 요소들과 상호작용합니다:
+
+- **Project**: 개발 팀이나 애플리케이션 단위로 구성되는 논리적 그룹
+- **Instance**: 실제 데이터베이스 서버 연결 정보
+- **Database**: Instance 내의 개별 데이터베이스
+- **Issue**: 데이터베이스 변경 요청 (DDL/DML 스크립트 포함)
+- **Sheet**: Issue에서 실행할 실제 SQL 스크립트
+- **Changelog**: 실행 완료된 변경사항의 기록
+- **Revision**: 데이터베이스의 특정 시점 상태를 나타내는 스냅샷
+
+### 마이그레이션 추적 시스템
+`shelltide`는 Bytebase의 **Revision** 시스템을 활용하여 마이그레이션 상태를 추적합니다:
+
+1. **Revision 저장**: 각 데이터베이스의 Revision에는 `project-name#issue-number` 형식으로 마지막 적용된 이슈 번호가 저장됩니다
+2. **버전 비교**: 마이그레이션 시 소스 환경과 대상 환경의 Revision을 비교하여 적용할 이슈 범위를 결정합니다
+3. **증분 적용**: 대상 환경의 현재 버전보다 높은 이슈 번호만 마이그레이션 대상에 포함됩니다
+4. **상태 업데이트**: 마이그레이션 완료 후 새로운 Revision을 생성하여 적용된 최종 버전을 기록합니다
 
 ### 안전한 마이그레이션 프로세스
-1. **상태 확인**: 소스와 대상 환경 간 최신 리비전 비교
-2. **이슈 발견**: 대상의 마지막 리비전 이후 생성된 모든 이슈 검색
-3. **SQL 검증**: 대기 중인 모든 이슈에 대해 Bytebase SQL 검사 실행
-4. **계획 생성**: 검증된 SQL 문으로 마이그레이션 계획 생성
-5. **실행**: 모든 검증이 통과한 경우에만 변경사항 적용
+1. **환경 상태 확인**: 
+   - 소스 환경에서 최신 완료된(DONE) 이슈 번호 확인
+   - 대상 환경의 현재 Revision에서 마지막 적용된 버전 확인
+2. **변경사항 발견**: 
+   - 대상의 현재 버전과 목표 버전 사이의 모든 Changelog 검색
+   - 대상 데이터베이스에 해당하는 변경사항만 필터링
+3. **SQL 검증**: 
+   - 각 Changelog의 SQL을 Bytebase SQL 검사기로 사전 검증
+   - 구문 오류, 스키마 충돌 등을 미리 감지
+4. **순차적 실행**: 
+   - 시간순으로 정렬된 Changelog를 하나씩 적용
+   - 각 변경사항마다 Sheet → Plan → Issue → Rollout 워크플로우 실행
+5. **Revision 업데이트**: 
+   - 성공적으로 완료된 경우 목표 버전으로 Revision 생성
+   - 부분 실패의 경우 마지막으로 성공한 이슈까지의 버전으로 업데이트
 
-### 환경 별칭
-- 환경은 Bytebase 프로젝트와 인스턴스에 매핑되는 로컬 별칭으로 저장됩니다
-- 전체 프로젝트 경로 대신 짧은 이름을 사용하여 명령어를 단순화합니다
-- 구성은 `~/.shelltide/config.json`에 로컬로 저장됩니다
+### 버전 관리 특징
+- **선언적 마이그레이션**: 현재 상태가 아닌 원하는 목표 버전을 지정
+- **멱등성**: 동일한 버전에 대해 여러 번 실행해도 안전
+- **높은 버전 처리**: 적용할 마이그레이션이 없어도 Revision을 목표 버전으로 업데이트
+
+### 환경 별칭 시스템
+- **로컬 구성**: `~/.shelltide/config.json`에 환경 별칭과 Bytebase 매핑 정보 저장
+- **간소화된 명령어**: `prod-instance/admin-db` 대신 `prod/admin`와 같은 짧은 별칭 사용
+- **다중 환경 지원**: 개발, 스테이징, 프로덕션 등 여러 환경을 하나의 CLI로 관리
 
 ## 필수 요구사항
 
@@ -41,19 +69,38 @@
 - [Cargo](https://doc.rust-lang.org/cargo/) (Rust와 함께 제공)
 - 실행 중인 [Bytebase](https://www.bytebase.com/) 인스턴스
 
-## 설치 및 빌드
+## 설치
 
-1. 저장소 복제:
-   ```sh
-   git clone <repository-url>
-   cd shelltide
-   ```
+### Git 저장소에서 설치
 
-2. 프로젝트 빌드:
-   ```sh
-   cargo build --release
-   ```
-   실행 파일은 `target/release/shelltide`에 생성됩니다. 쉬운 접근을 위해 시스템의 `PATH`에 있는 디렉토리로 이동할 수 있습니다.
+```sh
+# 최신 버전을 Git에서 직접 설치
+cargo install --git <repository-url> --locked
+```
+
+### 소스에서 빌드 및 설치
+
+```sh
+# 저장소 복제
+git clone <repository-url>
+cd shelltide
+
+# 로컬에서 빌드 및 설치
+cargo install --path . --locked
+```
+
+이렇게 설치하면 `shelltide` 명령어가 시스템 PATH에 추가되어 어디서든 사용할 수 있습니다.
+
+### 수동 빌드 (개발용)
+
+```sh
+# 개발 빌드
+cargo build
+
+# 릴리스 빌드
+cargo build --release
+```
+실행 파일은 `target/debug/shelltide` 또는 `target/release/shelltide`에 생성됩니다.
 
 ## 사용법
 
