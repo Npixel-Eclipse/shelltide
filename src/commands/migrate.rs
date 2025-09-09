@@ -71,7 +71,7 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
         })?
     };
 
-    if target_latest_no >= target_version {
+    if target_latest_no == target_version {
         println!(
             "Target environment '{}' is already up-to-date. Nothing to apply.",
             &args.target.env
@@ -81,7 +81,7 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
 
     // Execute migrations
     println!("--- Applying Migrations ---");
-    let Some((last_issue, last_sheet, all_successful)) = migrate(
+    let migrate_result = migrate(
         api_client,
         source_env,
         &args.source_db,
@@ -91,13 +91,24 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
         &SQLDialect::MySQL,
         target_version,
     )
-    .await
-    else {
-        println!("No issues to apply.");
-        return Ok(());
-    };
+    .await;
 
     // create revision - use target version if all successful, otherwise use last applied issue
+    let (last_issue, last_sheet, all_successful) = migrate_result.unwrap_or_else(|| {
+        println!(
+            "No issues to apply. Updating revision to version {}...",
+            target_version
+        );
+        (
+            IssueName {
+                project: source_env.project.clone(),
+                number: target_version,
+            },
+            target_revision.sheet.clone(),
+            true,
+        )
+    });
+
     let revision_issue_number = if all_successful {
         target_version
     } else {
