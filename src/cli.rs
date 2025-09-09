@@ -164,4 +164,8 @@ pub struct ExtractArgs {
     /// Ending issue number (inclusive)
     #[arg(long)]
     pub to: Option<u32>,
+
+    /// Exit with code 2 if no migration scripts are found
+    #[arg(long)]
+    pub fail_if_empty: bool,
 }
