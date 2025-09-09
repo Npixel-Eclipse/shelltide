@@ -130,6 +130,7 @@ pub struct Revision {
     #[serde(rename = "createTime")]
     pub create_time: Option<chrono::DateTime<chrono::Utc>>,
     pub version: Option<RevisionVersion>,
+    pub sheet: SheetName,
 }
 
 #[derive(Debug, Clone)]
