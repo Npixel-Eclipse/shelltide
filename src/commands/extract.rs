@@ -36,6 +36,12 @@ pub async fn handle_extract_with_config<C: ConfigOperations>(
     // Filter changelogs based on criteria
     let filtered_changelogs = filter_changelogs(changelogs, args.from, args.to)?;
 
+    // Check if no scripts found and fail_if_empty is set
+    if filtered_changelogs.is_empty() && args.fail_if_empty {
+        eprintln!("No migration scripts found in the specified range");
+        std::process::exit(2);
+    }
+
     // Generate and output the SQL script
     output_sql_script(&filtered_changelogs, args.from, args.to)?;
 
