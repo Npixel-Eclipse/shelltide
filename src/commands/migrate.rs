@@ -95,10 +95,7 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
 
     // create revision - use target version if all successful, otherwise use last applied issue
     let (last_issue, last_sheet, all_successful) = migrate_result.unwrap_or_else(|| {
-        println!(
-            "No issues to apply. Updating revision to version {}...",
-            target_version
-        );
+        println!("No issues to apply. Updating revision to version {target_version}...",);
         (
             IssueName {
                 project: source_env.project.clone(),
@@ -198,7 +195,7 @@ async fn migrate<T: BytebaseApi>(
     let mut last_applied = None;
 
     let mut changelogs = api_client
-        .get_changelogs(&source_env.instance, source_database, &source_env.project)
+        .get_changelogs(&source_env.instance, source_database)
         .await
         .ok()?
         .into_iter()
