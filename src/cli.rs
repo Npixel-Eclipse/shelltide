@@ -29,8 +29,11 @@ pub enum Commands {
     /// Generate shell completions
     Completion(CompletionArgs),
 
-    /// Extract changelog scripts from a database
-    Extract(ExtractArgs),
+    /// Show database schema changes (diff) between issues
+    Diff(DiffArgs),
+
+    /// Dump complete database schema at a specific issue
+    Dump(DumpArgs),
 }
 
 // --- Argument Structs ---
@@ -153,7 +156,7 @@ pub struct StatusArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct ExtractArgs {
+pub struct DiffArgs {
     /// Target database as "<env>/<database>"
     pub target: EnvDb,
 
@@ -166,6 +169,20 @@ pub struct ExtractArgs {
     pub to: Option<u32>,
 
     /// Exit with code 2 if no migration scripts are found
+    #[arg(long)]
+    pub fail_if_empty: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DumpArgs {
+    /// Target database as "<env>/<database>"
+    pub target: EnvDb,
+
+    /// Issue number to dump schema at (uses latest migration <= this issue)
+    #[arg(long)]
+    pub at_issue: Option<u32>,
+
+    /// Exit with code 2 if no schema dump is available
     #[arg(long)]
     pub fail_if_empty: bool,
 }

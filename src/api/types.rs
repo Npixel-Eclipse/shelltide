@@ -59,6 +59,11 @@ pub struct IssuesResponse {
     pub issues: Vec<Issue>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct ChangelogsResponse {
+    pub changelogs: Vec<Changelog>,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Issue {
     pub name: IssueName,
@@ -212,7 +217,7 @@ impl<'de> Deserialize<'de> for ChangeLogName {
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
-pub struct StringStatement(String);
+pub struct StringStatement(pub String);
 
 impl StringStatement {
     pub fn is_empty(&self) -> bool {
@@ -243,12 +248,16 @@ pub struct Changelog {
     #[serde(rename = "createTime")]
     pub create_time: chrono::DateTime<chrono::Utc>,
     #[serde(default)]
+    pub status: String,
+    #[serde(default)]
     pub statement: StringStatement,
     pub issue: IssueName,
     #[serde(rename = "changedResources", default)]
     pub changed_resources: ChangedResource,
     #[serde(rename = "type", default)]
     pub changelog_type: Option<ChangelogType>,
+    #[serde(default)]
+    pub schema: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

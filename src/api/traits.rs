@@ -19,7 +19,6 @@ pub trait BytebaseApi: Send + Sync {
         &self,
         instance: &str,
         database: &str,
-        project_name: &str,
     ) -> Result<Vec<Changelog>, AppError>;
     async fn create_plan(
         &self,

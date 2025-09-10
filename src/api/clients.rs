@@ -1,7 +1,7 @@
 use crate::api::traits::BytebaseApi;
 use crate::api::types::{
-    ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, Instance, Issue, IssueName,
-    IssuesResponse, LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec,
+    ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, ChangelogsResponse, Instance, Issue,
+    IssueName, IssuesResponse, LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec,
     PostIssuesResponse, PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision,
     SheetName, SheetRequest, SqlCheckRequest,
 };
@@ -370,7 +370,6 @@ impl BytebaseApi for LiveApiClient {
         &self,
         instance: &str,
         database: &str,
-        project_name: &str,
     ) -> Result<Vec<Changelog>, AppError> {
         let url = format!(
             "{}/v1/instances/{instance}/databases/{database}/changelogs",
@@ -383,45 +382,26 @@ impl BytebaseApi for LiveApiClient {
             .query(&[("pageSize", "1000"), ("view", "CHANGELOG_VIEW_FULL")])
             .send()
             .await?;
-        let status = response.status();
-        let response_text = response.text().await?;
 
-        if !status.is_success() {
-            println!("Get changelogs failed - Status: {status}, Response: {response_text}",);
+        if !response.status().is_success() {
             return Err(AppError::ApiError(format!(
-                "Get changelogs failed. Status: {status}, Response: {response_text}",
+                "Get changelogs failed. Status: {}",
+                response.status()
             )));
         }
 
-        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
-            Ok(value) => value,
-            Err(e) => {
-                println!(
-                    "Failed to parse changelogs response - Status: {status}, Response: {response_text}",
-                );
-                return Err(AppError::ApiError(format!(
-                    "Failed to parse changelogs response: {e}"
-                )));
-            }
-        };
+        let changelogs_response: ChangelogsResponse = response
+            .json()
+            .await
+            .map_err(|e| AppError::ApiError(format!("Failed to parse changelogs response: {e}")))?;
 
-        Ok(response_value
-            .get("changelogs")
-            .ok_or_else(|| AppError::ApiError("No changelogs field found".to_string()))?
-            .as_array()
-            .ok_or_else(|| AppError::ApiError("No changelogs array found".to_string()))?
-            .iter()
-            .filter_map(|v| match serde_json::from_value::<Changelog>(v.clone()) {
-                Ok(c) => {
-                    if c.issue.project == project_name && !c.statement.is_empty() {
-                        Some(c)
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            })
-            .collect())
+        let results: Vec<Changelog> = changelogs_response
+            .changelogs
+            .into_iter()
+            .filter(|c| c.status == "DONE" && !c.statement.is_empty())
+            .collect();
+
+        Ok(results)
     }
 
     async fn create_revision(
@@ -678,7 +658,6 @@ pub mod tests {
             &self,
             _instance: &str,
             _database: &str,
-            _project_name: &str,
         ) -> Result<Vec<Changelog>, AppError> {
             unimplemented!()
         }
@@ -709,6 +688,10 @@ pub mod tests {
                     project_name: "fake-project".to_string(),
                     number: 100,
                 }),
+                sheet: SheetName {
+                    project_name: "fake-sheet".to_string(),
+                    number: 100,
+                },
             })
         }
     }

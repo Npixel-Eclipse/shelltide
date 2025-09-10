@@ -1,48 +1,42 @@
 use crate::api::clients::LiveApiClient;
 use crate::api::traits::BytebaseApi;
 use crate::api::types::{Changelog, ChangelogType};
-use crate::cli::ExtractArgs;
+use crate::cli::DiffArgs;
 use crate::config::{ConfigOperations, ProductionConfig};
 use crate::error::AppError;
 use chrono::{DateTime, Utc};
 
-pub async fn handle_extract(args: ExtractArgs) -> Result<(), AppError> {
+pub async fn handle_diff(args: DiffArgs) -> Result<(), AppError> {
     let config_ops = ProductionConfig;
-    handle_extract_with_config(args, &config_ops).await
+    handle_diff_with_config(args, &config_ops).await
 }
 
-pub async fn handle_extract_with_config<C: ConfigOperations>(
-    args: ExtractArgs,
+pub async fn handle_diff_with_config<C: ConfigOperations>(
+    args: DiffArgs,
     config_ops: &C,
 ) -> Result<(), AppError> {
     let config = config_ops.load_config().await?;
     let credentials = config.get_credentials()?;
     let mut client = LiveApiClient::new(credentials)?;
 
-    // Ensure authentication
     client.ensure_authenticated_with_config(config_ops).await?;
 
-    // Get environment configuration
     let env_config = config
         .environments
         .get(&args.target.env)
         .ok_or_else(|| AppError::Config(format!("Environment '{}' not found", args.target.env)))?;
 
-    // Fetch changelogs from the API
     let changelogs = client
-        .get_changelogs(&env_config.instance, &args.target.db, &env_config.project)
+        .get_changelogs(&env_config.instance, &args.target.db)
         .await?;
 
-    // Filter changelogs based on criteria
     let filtered_changelogs = filter_changelogs(changelogs, args.from, args.to)?;
 
-    // Check if no scripts found and fail_if_empty is set
     if filtered_changelogs.is_empty() && args.fail_if_empty {
         eprintln!("No migration scripts found in the specified range");
         std::process::exit(2);
     }
 
-    // Generate and output the SQL script
     output_sql_script(&filtered_changelogs, args.from, args.to)?;
 
     Ok(())
@@ -56,24 +50,19 @@ fn filter_changelogs(
     let mut filtered: Vec<Changelog> = changelogs
         .into_iter()
         .filter(|changelog| {
-            // Only include MIGRATE type changelogs and those with non-empty statements
             changelog.changelog_type == Some(ChangelogType::Migrate)
                 && !changelog.statement.is_empty()
+                && changelog.status == "DONE"
         })
-        .filter(|changelog| {
-            // Filter by issue number range if specified
-            match (from_issue, to_issue) {
-                (Some(from), Some(to)) => {
-                    changelog.issue.number >= from && changelog.issue.number <= to
-                }
-                (Some(from), None) => changelog.issue.number >= from,
-                (None, Some(to)) => changelog.issue.number <= to,
-                (None, None) => true,
+        .filter(|changelog| match (from_issue, to_issue) {
+            (Some(from), Some(to)) => {
+                changelog.issue.number >= from && changelog.issue.number <= to
             }
+            (Some(from), None) => changelog.issue.number >= from,
+            (None, Some(to)) => changelog.issue.number <= to,
+            (None, None) => true,
         })
         .collect();
-
-    // Sort by creation time
     filtered.sort_by_key(|changelog| changelog.create_time);
 
     Ok(filtered)
@@ -84,7 +73,6 @@ fn output_sql_script(
     from_issue: Option<u32>,
     to_issue: Option<u32>,
 ) -> Result<(), AppError> {
-    // Generate header comment
     let range_description = match (from_issue, to_issue) {
         (Some(from), Some(to)) => format!("from issue #{from} to #{to}"),
         (Some(from), None) => format!("from issue #{from} to latest"),
