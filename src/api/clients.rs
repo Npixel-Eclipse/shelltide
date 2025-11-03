@@ -1,9 +1,9 @@
 use crate::api::traits::BytebaseApi;
 use crate::api::types::{
-    ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, ChangelogsResponse, Instance, Issue,
-    IssueName, IssuesResponse, LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec,
-    PostIssuesResponse, PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision,
-    SheetName, SheetRequest, SqlCheckRequest,
+    ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, Instance, Issue, IssueName,
+    LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec, PostIssuesResponse,
+    PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision, SheetName,
+    SheetRequest, SqlCheckRequest,
 };
 use crate::config::{ConfigOperations, Credentials};
 use crate::error::AppError;
@@ -180,17 +180,62 @@ impl BytebaseApi for LiveApiClient {
     }
 
     async fn get_done_issues(&self, project_name: &str) -> Result<Vec<Issue>, AppError> {
-        let url = format!(
-            "{}/v1/projects/{}/issues?filter=status=\"DONE\"",
-            self.base_url, project_name
-        );
-        let response = self.client.get(&url).send().await?;
-        let res_json: IssuesResponse = Self::handle_response(
-            response,
-            &format!("Get done issues for project '{project_name}'"),
-        )
-        .await?;
-        Ok(res_json.issues)
+        let mut all_issues = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        loop {
+            let url = format!("{}/v1/projects/{}/issues", self.base_url, project_name);
+            let mut request = self
+                .client
+                .get(&url)
+                .query(&[("filter", "status=\"DONE\""), ("pageSize", "100")]);
+
+            if let Some(token) = &page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+
+            if !status.is_success() {
+                println!("Get done issues failed - Status: {status}, Response: {response_text}");
+                return Err(AppError::ApiError(format!(
+                    "Get done issues for project '{project_name}' failed. Status: {status}, Response: {response_text}",
+                )));
+            }
+
+            let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+                Ok(value) => value,
+                Err(e) => {
+                    println!(
+                        "Failed to parse done issues response - Status: {status}, Response: {response_text}",
+                    );
+                    return Err(AppError::ApiError(format!(
+                        "Failed to parse done issues response: {e}",
+                    )));
+                }
+            };
+
+            if let Some(issues_array) = response_value.get("issues").and_then(|v| v.as_array()) {
+                let page_issues: Vec<Issue> = issues_array
+                    .iter()
+                    .filter_map(|i| serde_json::from_value::<Issue>(i.clone()).ok())
+                    .collect();
+                all_issues.extend(page_issues);
+            }
+
+            page_token = response_value
+                .get("nextPageToken")
+                .and_then(|token| token.as_str())
+                .map(|s| s.to_string());
+
+            if page_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(all_issues)
     }
 
     async fn create_sheet(
@@ -396,37 +441,64 @@ impl BytebaseApi for LiveApiClient {
         instance: &str,
         database: &str,
     ) -> Result<Vec<Changelog>, AppError> {
-        let url = format!(
-            "{}/v1/instances/{instance}/databases/{database}/changelogs",
-            self.base_url,
-        );
+        let mut all_changelogs = Vec::new();
+        let mut page_token: Option<String> = None;
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("pageSize", "1000"), ("view", "CHANGELOG_VIEW_FULL")])
-            .send()
-            .await?;
+        loop {
+            let url = format!(
+                "{}/v1/instances/{instance}/databases/{database}/changelogs",
+                self.base_url,
+            );
+            let mut request = self
+                .client
+                .get(&url)
+                .query(&[("pageSize", "100"), ("view", "CHANGELOG_VIEW_FULL")]);
 
-        if !response.status().is_success() {
-            return Err(AppError::ApiError(format!(
-                "Get changelogs failed. Status: {}",
-                response.status()
-            )));
+            if let Some(token) = &page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+
+            if !status.is_success() {
+                return Err(AppError::ApiError(format!(
+                    "Get changelogs failed. Status: {status}, Response: {response_text}"
+                )));
+            }
+
+            let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+                Ok(value) => value,
+                Err(e) => {
+                    return Err(AppError::ApiError(format!(
+                        "Failed to parse changelogs response: {e}"
+                    )));
+                }
+            };
+
+            if let Some(changelogs_array) =
+                response_value.get("changelogs").and_then(|v| v.as_array())
+            {
+                let page_changelogs: Vec<Changelog> = changelogs_array
+                    .iter()
+                    .filter_map(|c| serde_json::from_value::<Changelog>(c.clone()).ok())
+                    .filter(|c| c.status == "DONE" && !c.statement.is_empty())
+                    .collect();
+                all_changelogs.extend(page_changelogs);
+            }
+
+            page_token = response_value
+                .get("nextPageToken")
+                .and_then(|token| token.as_str())
+                .map(|s| s.to_string());
+
+            if page_token.is_none() {
+                break;
+            }
         }
 
-        let changelogs_response: ChangelogsResponse = response
-            .json()
-            .await
-            .map_err(|e| AppError::ApiError(format!("Failed to parse changelogs response: {e}")))?;
-
-        let results: Vec<Changelog> = changelogs_response
-            .changelogs
-            .into_iter()
-            .filter(|c| c.status == "DONE" && !c.statement.is_empty())
-            .collect();
-
-        Ok(results)
+        Ok(all_changelogs)
     }
 
     async fn create_revision(
