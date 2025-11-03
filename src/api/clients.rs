@@ -322,41 +322,66 @@ impl BytebaseApi for LiveApiClient {
         instance: &str,
         database: &str,
     ) -> Result<Revision, AppError> {
-        let url = format!(
-            "{}/v1/instances/{instance}/databases/{database}/revisions",
-            self.base_url,
-        );
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-        let response_text = response.text().await?;
+        let mut all_revisions = Vec::new();
+        let mut page_token: Option<String> = None;
 
-        if !status.is_success() {
-            println!("Get latest revisions failed - Status: {status}, Response: {response_text}",);
-            return Err(AppError::ApiError(format!(
-                "Get latest revisions failed. Status: {status}, Response: {response_text}",
-            )));
-        }
+        loop {
+            let url = format!(
+                "{}/v1/instances/{instance}/databases/{database}/revisions",
+                self.base_url,
+            );
+            let mut request = self.client.get(&url).query(&[("pageSize", "100")]);
 
-        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
-            Ok(value) => value,
-            Err(e) => {
+            if let Some(token) = &page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+
+            if !status.is_success() {
                 println!(
-                    "Failed to parse latest revisions response - Status: {status}, Response: {response_text}",
+                    "Get latest revisions failed - Status: {status}, Response: {response_text}",
                 );
                 return Err(AppError::ApiError(format!(
-                    "Failed to parse latest revisions response: {e}",
+                    "Get latest revisions failed. Status: {status}, Response: {response_text}",
                 )));
             }
-        };
-        let revisions = response_value
-            .get("revisions")
-            .ok_or_else(|| AppError::ApiError("No revisions field found".to_string()))?
-            .as_array()
-            .ok_or_else(|| AppError::ApiError("No revisions array found".to_string()))?
-            .iter()
-            .filter_map(|r| serde_json::from_value::<Revision>(r.clone()).ok())
-            .collect::<Vec<Revision>>();
-        revisions
+
+            let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+                Ok(value) => value,
+                Err(e) => {
+                    println!(
+                        "Failed to parse latest revisions response - Status: {status}, Response: {response_text}",
+                    );
+                    return Err(AppError::ApiError(format!(
+                        "Failed to parse latest revisions response: {e}",
+                    )));
+                }
+            };
+
+            if let Some(revisions_array) =
+                response_value.get("revisions").and_then(|v| v.as_array())
+            {
+                let page_revisions: Vec<Revision> = revisions_array
+                    .iter()
+                    .filter_map(|r| serde_json::from_value::<Revision>(r.clone()).ok())
+                    .collect();
+                all_revisions.extend(page_revisions);
+            }
+
+            page_token = response_value
+                .get("nextPageToken")
+                .and_then(|token| token.as_str())
+                .map(|s| s.to_string());
+
+            if page_token.is_none() {
+                break;
+            }
+        }
+
+        all_revisions
             .iter()
             .filter(|r| r.create_time.is_some())
             .max_by_key(|r| r.create_time.as_ref().unwrap())
@@ -523,37 +548,60 @@ impl BytebaseApi for LiveApiClient {
         instance: &str,
         database: &str,
     ) -> Result<Revision, AppError> {
-        let url = format!(
-            "{}/v1/instances/{instance}/databases/{database}/revisions",
-            self.base_url,
-        );
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-        let response_text = response.text().await?;
+        let mut all_revisions = Vec::new();
+        let mut page_token: Option<String> = None;
 
-        if !status.is_success() {
-            return Err(AppError::ApiError(format!(
-                "Get latest revisions failed. Status: {status}"
-            )));
-        }
+        loop {
+            let url = format!(
+                "{}/v1/instances/{instance}/databases/{database}/revisions",
+                self.base_url,
+            );
+            let mut request = self.client.get(&url).query(&[("pageSize", "100")]);
 
-        let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
-            Ok(value) => value,
-            Err(e) => {
+            if let Some(token) = &page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+
+            if !status.is_success() {
                 return Err(AppError::ApiError(format!(
-                    "Failed to parse latest revisions response: {e}"
+                    "Get latest revisions failed. Status: {status}"
                 )));
             }
-        };
-        let revisions = response_value
-            .get("revisions")
-            .ok_or_else(|| AppError::ApiError("No revisions field found".to_string()))?
-            .as_array()
-            .ok_or_else(|| AppError::ApiError("No revisions array found".to_string()))?
-            .iter()
-            .filter_map(|r| serde_json::from_value::<Revision>(r.clone()).ok())
-            .collect::<Vec<Revision>>();
-        revisions
+
+            let response_value: serde_json::Value = match serde_json::from_str(&response_text) {
+                Ok(value) => value,
+                Err(e) => {
+                    return Err(AppError::ApiError(format!(
+                        "Failed to parse latest revisions response: {e}"
+                    )));
+                }
+            };
+
+            if let Some(revisions_array) =
+                response_value.get("revisions").and_then(|v| v.as_array())
+            {
+                let page_revisions: Vec<Revision> = revisions_array
+                    .iter()
+                    .filter_map(|r| serde_json::from_value::<Revision>(r.clone()).ok())
+                    .collect();
+                all_revisions.extend(page_revisions);
+            }
+
+            page_token = response_value
+                .get("nextPageToken")
+                .and_then(|token| token.as_str())
+                .map(|s| s.to_string());
+
+            if page_token.is_none() {
+                break;
+            }
+        }
+
+        all_revisions
             .iter()
             .filter(|r| r.create_time.is_some())
             .max_by_key(|r| r.create_time.as_ref().unwrap())
