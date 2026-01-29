@@ -86,10 +86,10 @@ pub async fn handle_status_command_with_config<
 
     for (env_name, env) in &config.environments {
         // Skip environment if filter is specified and doesn't match
-        if let Some(filter_env) = filter_env {
-            if env_name != filter_env {
-                continue;
-            }
+        if let Some(filter_env) = filter_env
+            && env_name != filter_env
+        {
+            continue;
         }
 
         // Skip default environment when showing all environments (no filter)

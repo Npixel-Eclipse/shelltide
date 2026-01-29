@@ -2,8 +2,8 @@ use crate::api::traits::BytebaseApi;
 use crate::api::types::{
     ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, Instance, Issue, IssueName,
     LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec, PostIssuesResponse,
-    PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision, SheetName,
-    SheetRequest, SqlCheckRequest,
+    PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision, Rollout,
+    SheetName, SheetRequest, SqlCheckRequest,
 };
 use crate::config::{ConfigOperations, Credentials};
 use crate::error::AppError;
@@ -285,7 +285,7 @@ impl BytebaseApi for LiveApiClient {
         target_project_name: &str,
         plan_name: PlanName,
         issue_name: IssueName,
-    ) -> Result<(), AppError> {
+    ) -> Result<Rollout, AppError> {
         let url = format!(
             "{}/v1/projects/{}/rollouts",
             self.base_url, target_project_name
@@ -296,13 +296,21 @@ impl BytebaseApi for LiveApiClient {
             "issue": issue_name,
         });
         let response = self.client.post(&url).json(&body).send().await?;
-        if !response.status().is_success() {
-            let error_body = response.text().await.unwrap_or_default();
-            return Err(AppError::ApiError(format!(
-                "Failed to create rollout: {error_body}"
-            )));
-        }
-        Ok(())
+        Self::handle_response(
+            response,
+            &format!("Create rollout for project '{target_project_name}'"),
+        )
+        .await
+    }
+
+    async fn get_rollout(&self, project: &str, rollout_id: u32) -> Result<Rollout, AppError> {
+        let url = format!(
+            "{}/v1/projects/{}/rollouts/{}",
+            self.base_url, project, rollout_id
+        );
+        let response = self.client.get(&url).send().await?;
+        Self::handle_response(response, &format!("Get rollout '{project}/rollouts/{rollout_id}'"))
+            .await
     }
 
     async fn create_issue(
@@ -695,7 +703,8 @@ pub mod tests {
             traits::BytebaseApi,
             types::{
                 Changelog, Instance, Issue, IssueName, PlanName, PostIssuesResponse,
-                PostPlansResponse, PostSheetsResponse, Project, Revision, SheetName, SheetRequest,
+                PostPlansResponse, PostSheetsResponse, Project, Revision, Rollout, SheetName,
+                SheetRequest,
             },
         },
         error::AppError,
@@ -757,7 +766,10 @@ pub mod tests {
             _project_name: &str,
             _plan_name: PlanName,
             _issue_name: IssueName,
-        ) -> Result<(), AppError> {
+        ) -> Result<Rollout, AppError> {
+            unimplemented!()
+        }
+        async fn get_rollout(&self, _project: &str, _rollout_id: u32) -> Result<Rollout, AppError> {
             unimplemented!()
         }
         async fn create_issue(

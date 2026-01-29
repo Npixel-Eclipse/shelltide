@@ -1,6 +1,6 @@
 use crate::api::types::{
     Changelog, Instance, Issue, IssueName, PlanName, PostIssuesResponse, PostPlansResponse,
-    PostSheetsResponse, Project, Revision, SheetName, SheetRequest,
+    PostSheetsResponse, Project, Revision, Rollout, SheetName, SheetRequest,
 };
 use crate::error::AppError;
 use async_trait::async_trait;
@@ -37,7 +37,8 @@ pub trait BytebaseApi: Send + Sync {
         project_name: &str,
         plan_name: PlanName,
         issue_name: IssueName,
-    ) -> Result<(), AppError>;
+    ) -> Result<Rollout, AppError>;
+    async fn get_rollout(&self, project: &str, rollout_id: u32) -> Result<Rollout, AppError>;
     async fn create_issue(
         &self,
         project_name: &str,
