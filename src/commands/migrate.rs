@@ -1,3 +1,4 @@
+use crate::api::polling::wait_for_rollout;
 use crate::api::traits::BytebaseApi;
 use crate::api::types::{
     Changelog, IssueName, PostSheetsResponse, Revision, SQLDialect, SheetName, SheetRequest,
@@ -94,18 +95,8 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
     .await;
 
     // create revision - use target version if all successful, otherwise use last applied issue
-    let (last_issue, last_sheet, all_successful) = migrate_result.unwrap_or_else(|| {
-        println!("No issues to apply. Updating revision to version {target_version}...",);
-        (
-            IssueName {
-                project: source_env.project.clone(),
-                number: target_version,
-            },
-            target_revision.sheet.clone(),
-            true,
-        )
-    });
-
+    let (last_issue, last_sheet, all_successful) =
+        migrate_result.ok_or(AppError::ApiError("failed to migrate".to_string()))?;
     let revision_issue_number = if all_successful {
         target_version
     } else {
@@ -115,6 +106,10 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
     let revision_name = format!("{}#{}", last_issue.project, revision_issue_number);
     let revision_version = format!("{}#{}", last_issue.project, revision_issue_number);
     let revision_sheet = last_sheet.to_string();
+    println!(
+        "Migrated to issue #{}. Creating revision...",
+        last_issue.number
+    );
     api_client
         .create_revision(
             &target_env.instance,
@@ -174,9 +169,14 @@ async fn apply_changelog<T: BytebaseApi>(
     let issue_response = api_client
         .create_issue(&target_env.project, &plan_response.name)
         .await?;
-    api_client
+
+    // Create rollout and wait for completion
+    let rollout = api_client
         .create_rollout(&target_env.project, plan_response.name, issue_response.name)
         .await?;
+
+    // Poll until rollout completes (success or failure)
+    wait_for_rollout(api_client, &target_env.project, rollout.name.rollout_id).await?;
 
     Ok(sheet_response)
 }
@@ -202,10 +202,6 @@ async fn migrate<T: BytebaseApi>(
         .filter(|c| {
             c.issue.number > target_revision.version.as_ref().map_or(0, |v| v.number)
                 && c.issue.number <= target_version
-                && c.changed_resources
-                    .databases
-                    .iter()
-                    .any(|d| d.name == target_database)
         })
         .collect::<Vec<_>>();
 
@@ -222,8 +218,7 @@ async fn migrate<T: BytebaseApi>(
             }
             Err(e) => {
                 eprintln!("Error applying changelog: {e}");
-                let all_successful = applied_count == total_changelogs;
-                return last_applied.map(|(issue, sheet)| (issue, sheet, all_successful));
+                return last_applied.map(|(issue, sheet)| (issue, sheet, false));
             }
         }
     }

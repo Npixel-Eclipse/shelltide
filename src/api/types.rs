@@ -15,15 +15,6 @@ pub struct LoginResponse {
     pub token: String,
 }
 
-#[derive(Serialize)]
-pub struct CreateIssueRequest {
-    pub title: String,
-    pub description: String,
-    pub sql: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rollback_sql: Option<String>,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct Project {
     pub title: String,
@@ -46,52 +37,9 @@ pub struct SqlCheckRequest {
     pub statement: String,
 }
 
-#[derive(Deserialize, Debug, Eq, PartialEq, Clone)]
-pub enum SqlCheckStatus {
-    Success,
-    StatusUnspecified,
-    Warning,
-    Error,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct IssuesResponse {
-    pub issues: Vec<Issue>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct ChangelogsResponse {
-    pub changelogs: Vec<Changelog>,
-}
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct Issue {
     pub name: IssueName,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum IssueStatus {
-    Done,
-    Open,
-}
-
-impl std::fmt::Display for IssueStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                IssueStatus::Done => "DONE",
-                IssueStatus::Open => "OPEN",
-            }
-        )
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct IssuesFilter {
-    pub create_time: Option<chrono::DateTime<chrono::Utc>>,
-    pub status: Option<IssueStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -131,6 +79,7 @@ impl RevisionVersion {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct Revision {
     #[serde(rename = "createTime")]
     pub create_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -232,17 +181,6 @@ impl std::fmt::Display for StringStatement {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct Database {
-    pub name: String,
-}
-
-#[derive(Deserialize, Debug, Clone, Default)]
-pub struct ChangedResource {
-    #[serde(default)]
-    pub databases: Vec<Database>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
 pub struct Changelog {
     pub name: ChangeLogName,
     #[serde(rename = "createTime")]
@@ -252,8 +190,6 @@ pub struct Changelog {
     #[serde(default)]
     pub statement: StringStatement,
     pub issue: IssueName,
-    #[serde(rename = "changedResources", default)]
-    pub changed_resources: ChangedResource,
     #[serde(rename = "type", default)]
     pub changelog_type: Option<ChangelogType>,
     #[serde(default)]
@@ -442,63 +378,116 @@ pub struct PostIssuesResponse {
     pub name: IssueName,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Instance {
-    pub name: String,
-}
+// ===== Rollout Types =====
 
 #[derive(Debug, Clone)]
-pub struct RevisionName {
-    pub instance: String,
-    pub database: String,
-    pub number: u32,
+pub struct RolloutName {
+    pub project: String,
+    pub rollout_id: u32,
 }
 
-impl<'de> Deserialize<'de> for RevisionName {
+impl<'de> Deserialize<'de> for RolloutName {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let raw = String::deserialize(deserializer)?;
+        // Format: "projects/{project}/rollouts/{rollout_id}"
         let mut split = raw.split('/');
-        let instance = split
+        let project = split
             .nth(1)
-            .ok_or(de::Error::custom("cannot find instance name"))?
+            .ok_or(de::Error::custom("cannot find project name"))?
             .to_string();
-        let database = split
+        let rollout_id = split
             .nth(1)
-            .ok_or(de::Error::custom("cannot find database name"))?
-            .to_string();
-        let number = split
-            .nth(1)
-            .ok_or(de::Error::custom("cannot find revision number"))?
+            .ok_or(de::Error::custom("cannot find rollout id"))?
             .parse()
-            .map_err(|_| de::Error::custom("invalid revision number"))?;
+            .map_err(|_| de::Error::custom("invalid rollout id"))?;
         Ok(Self {
-            instance,
-            database,
-            number,
+            project,
+            rollout_id,
         })
     }
 }
 
-impl std::fmt::Display for RevisionName {
+impl std::fmt::Display for RolloutName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "instances/{}/databases/{}/revisions/{}",
-            self.instance, self.database, self.number
-        )
+        write!(f, "projects/{}/rollouts/{}", self.project, self.rollout_id)
     }
 }
 
-impl Serialize for RevisionName {
+impl Serialize for RolloutName {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer.serialize_str(&self.to_string())
     }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TaskStatus {
+    NotStarted,
+    Pending,
+    Running,
+    Done,
+    Failed,
+    Canceled,
+    Skipped,
+}
+
+impl TaskStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            TaskStatus::Done | TaskStatus::Failed | TaskStatus::Canceled | TaskStatus::Skipped
+        )
+    }
+
+    pub fn is_success(&self) -> bool {
+        matches!(self, TaskStatus::Done | TaskStatus::Skipped)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct RolloutTask {
+    pub name: String,
+    pub status: TaskStatus,
+    pub target: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct RolloutStage {
+    pub tasks: Vec<RolloutTask>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Rollout {
+    pub name: RolloutName,
+    #[serde(default)]
+    pub stages: Vec<RolloutStage>,
+}
+
+impl Rollout {
+    /// Check if all tasks in the rollout have reached a terminal state
+    pub fn is_complete(&self) -> bool {
+        self.stages
+            .iter()
+            .all(|stage| stage.tasks.iter().all(|task| task.status.is_terminal()))
+    }
+
+    /// Check if all tasks succeeded
+    pub fn is_success(&self) -> bool {
+        self.stages
+            .iter()
+            .all(|stage| stage.tasks.iter().all(|task| task.status.is_success()))
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Instance {
+    pub name: String,
 }
 
 #[test]
@@ -847,4 +836,128 @@ fn test_plan_name_deserialization() {
         assert_eq!(plan_name.project_name, expected_project_name);
         assert_eq!(plan_name.number, expected_number);
     }
+}
+
+#[test]
+fn test_rollout_deserialization() {
+    let rollout_json = r#"
+    {
+        "name": "projects/on-prem-stage/rollouts/2404",
+        "plan": "projects/on-prem-stage/plans/2405",
+        "stages": [
+            {
+                "name": "projects/on-prem-stage/rollouts/2404/stages/2405",
+                "environment": "environments/eclipsestage",
+                "tasks": [
+                    {
+                        "name": "projects/on-prem-stage/rollouts/2404/stages/2405/tasks/2440",
+                        "specId": "83fea410-a98f-4a2e-9f56-694ac7b3f09e",
+                        "status": "DONE",
+                        "type": "DATABASE_SCHEMA_UPDATE",
+                        "target": "instances/onprem-stage/databases/store",
+                        "databaseSchemaUpdate": {
+                            "sheet": "projects/on-prem-stage/sheets/2632"
+                        }
+                    }
+                ]
+            }
+        ],
+        "creator": "users/terraform@service.bytebase.com",
+        "createTime": "2026-01-27T11:29:05.574924Z",
+        "issue": "projects/on-prem-stage/issues/2406"
+    }
+    "#;
+
+    let rollout: Rollout = serde_json::from_str(rollout_json).unwrap();
+
+    // Test RolloutName
+    assert_eq!(rollout.name.project, "on-prem-stage");
+    assert_eq!(rollout.name.rollout_id, 2404);
+
+    // Test stages
+    assert_eq!(rollout.stages.len(), 1);
+
+    // Test tasks
+    assert_eq!(rollout.stages[0].tasks.len(), 1);
+    let task = &rollout.stages[0].tasks[0];
+    assert_eq!(
+        task.name,
+        "projects/on-prem-stage/rollouts/2404/stages/2405/tasks/2440"
+    );
+    assert_eq!(task.status, TaskStatus::Done);
+    assert_eq!(task.target, "instances/onprem-stage/databases/store");
+
+    // Test helper methods
+    assert!(rollout.is_complete());
+    assert!(rollout.is_success());
+}
+
+#[test]
+fn test_rollout_failed_status() {
+    let rollout_json = r#"
+    {
+        "name": "projects/on-prem-stage/rollouts/1704",
+        "plan": "projects/on-prem-stage/plans/1705",
+        "stages": [
+            {
+                "name": "projects/on-prem-stage/rollouts/1704/stages/1705",
+                "environment": "environments/eclipsestage",
+                "tasks": [
+                    {
+                        "name": "projects/on-prem-stage/rollouts/1704/stages/1705/tasks/1740",
+                        "specId": "ffa3dd7d-670a-4a7e-8302-51cbd8b400c4",
+                        "status": "FAILED",
+                        "type": "DATABASE_SCHEMA_UPDATE",
+                        "target": "instances/onprem-stage/databases/chat",
+                        "databaseSchemaUpdate": {
+                            "sheet": "projects/on-prem-stage/sheets/1932"
+                        }
+                    }
+                ]
+            }
+        ],
+        "creator": "users/terraform@service.bytebase.com",
+        "createTime": "2026-01-27T09:11:27.329087Z",
+        "issue": "projects/on-prem-stage/issues/1706"
+    }
+    "#;
+
+    let rollout: Rollout = serde_json::from_str(rollout_json).unwrap();
+
+    assert_eq!(rollout.stages[0].tasks[0].status, TaskStatus::Failed);
+    assert!(rollout.is_complete());
+    assert!(!rollout.is_success());
+}
+
+#[test]
+fn test_rollout_not_started_status() {
+    let rollout_json = r#"
+    {
+        "name": "projects/test/rollouts/100",
+        "plan": "projects/test/plans/101",
+        "stages": [
+            {
+                "name": "projects/test/rollouts/100/stages/101",
+                "environment": "environments/test",
+                "tasks": [
+                    {
+                        "name": "projects/test/rollouts/100/stages/101/tasks/102",
+                        "specId": "abc-123",
+                        "status": "NOT_STARTED",
+                        "type": "DATABASE_SCHEMA_UPDATE",
+                        "target": "instances/test/databases/db"
+                    }
+                ]
+            }
+        ],
+        "createTime": "2026-01-27T09:11:27.329087Z",
+        "issue": "projects/test/issues/103"
+    }
+    "#;
+
+    let rollout: Rollout = serde_json::from_str(rollout_json).unwrap();
+
+    assert_eq!(rollout.stages[0].tasks[0].status, TaskStatus::NotStarted);
+    assert!(!rollout.is_complete()); // NOT_STARTED is not terminal
+    assert!(!rollout.is_success());
 }
