@@ -95,8 +95,10 @@ pub async fn handle_migrate_command_with_config<T: BytebaseApi, C: ConfigOperati
     .await;
 
     // create revision - use target version if all successful, otherwise use last applied issue
-    let (last_issue, last_sheet, all_successful) =
-        migrate_result.ok_or(AppError::ApiError("failed to migrate".to_string()))?;
+    let Some((last_issue, last_sheet, all_successful)) = migrate_result else {
+        println!("nothing to migrate");
+        return Ok(());
+    };
     let revision_issue_number = if all_successful {
         target_version
     } else {
@@ -197,6 +199,10 @@ async fn migrate<T: BytebaseApi>(
     let mut changelogs = api_client
         .get_changelogs(&source_env.instance, source_database)
         .await
+        .map_err(|e| {
+            println!("get_changelogs error: {:?}", e);
+            e
+        })
         .ok()?
         .into_iter()
         .filter(|c| {
