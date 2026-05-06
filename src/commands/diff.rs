@@ -50,8 +50,10 @@ fn filter_changelogs(
     let mut filtered: Vec<Changelog> = changelogs
         .into_iter()
         .filter(|changelog| {
-            changelog.changelog_type == Some(ChangelogType::Migrate)
-                && !changelog.statement.is_empty()
+            matches!(
+                changelog.changelog_type,
+                Some(ChangelogType::Migrate | ChangelogType::Data)
+            ) && !changelog.statement.is_empty()
                 && changelog.status == "DONE"
         })
         .filter(|changelog| match (from_issue, to_issue) {
