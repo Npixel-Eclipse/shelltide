@@ -96,7 +96,10 @@ fn is_all_not_started(rollout: &Rollout) -> bool {
         .flat_map(|stage| stage.tasks.iter())
         .collect();
 
-    !tasks.is_empty() && tasks.iter().all(|task| task.status == TaskStatus::NotStarted)
+    !tasks.is_empty()
+        && tasks
+            .iter()
+            .all(|task| task.status == TaskStatus::NotStarted)
 }
 
 /// Get a summary of all task statuses in the rollout
