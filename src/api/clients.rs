@@ -2,8 +2,8 @@ use crate::api::traits::BytebaseApi;
 use crate::api::types::{
     ChangeDatabaseConfig, ChangeDatabaseConfigType, Changelog, Instance, Issue, IssueName,
     LoginRequest, LoginResponse, PlanName, PlanStep, PlanStepSpec, PostIssuesResponse,
-    PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision, Rollout,
-    SheetName, SheetRequest, SqlCheckRequest,
+    PostPlansRequest, PostPlansResponse, PostSheetsResponse, Project, Revision, Rollout, SheetName,
+    SheetRequest, SqlCheckRequest,
 };
 use crate::config::{ConfigOperations, Credentials};
 use crate::error::AppError;
@@ -309,8 +309,11 @@ impl BytebaseApi for LiveApiClient {
             self.base_url, project, rollout_id
         );
         let response = self.client.get(&url).send().await?;
-        Self::handle_response(response, &format!("Get rollout '{project}/rollouts/{rollout_id}'"))
-            .await
+        Self::handle_response(
+            response,
+            &format!("Get rollout '{project}/rollouts/{rollout_id}'"),
+        )
+        .await
     }
 
     async fn create_issue(
@@ -507,6 +510,41 @@ impl BytebaseApi for LiveApiClient {
         }
 
         Ok(all_changelogs)
+    }
+
+    async fn get_database_schema(
+        &self,
+        instance: &str,
+        database: &str,
+    ) -> Result<String, AppError> {
+        let url = format!(
+            "{}/v1/instances/{instance}/databases/{database}/schema",
+            self.base_url,
+        );
+        let response = self.client.get(&url).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            return Err(AppError::ApiError(format!(
+                "Get database schema failed. Status: {status}, Response: {response_text}"
+            )));
+        }
+
+        let response_value: serde_json::Value =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AppError::ApiError(format!(
+                    "Failed to parse database schema response: {e}. Response: {response_text}"
+                ))
+            })?;
+
+        let schema = response_value
+            .get("schema")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        Ok(schema)
     }
 
     async fn create_revision(
@@ -791,6 +829,13 @@ pub mod tests {
             _instance: &str,
             _database: &str,
         ) -> Result<Vec<Changelog>, AppError> {
+            unimplemented!()
+        }
+        async fn get_database_schema(
+            &self,
+            _instance: &str,
+            _database: &str,
+        ) -> Result<String, AppError> {
             unimplemented!()
         }
         async fn create_revision(
