@@ -20,6 +20,7 @@ pub trait BytebaseApi: Send + Sync {
         instance: &str,
         database: &str,
     ) -> Result<Vec<Changelog>, AppError>;
+    async fn sync_database(&self, instance: &str, database: &str) -> Result<(), AppError>;
     /// Get the current (live) schema dump of a database directly from Bytebase.
     async fn get_database_schema(&self, instance: &str, database: &str)
     -> Result<String, AppError>;

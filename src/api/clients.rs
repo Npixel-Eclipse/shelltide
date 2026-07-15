@@ -512,6 +512,24 @@ impl BytebaseApi for LiveApiClient {
         Ok(all_changelogs)
     }
 
+    async fn sync_database(&self, instance: &str, database: &str) -> Result<(), AppError> {
+        let url = format!(
+            "{}/v1/instances/{instance}/databases/{database}:sync",
+            self.base_url,
+        );
+        let response = self.client.post(&url).json(&json!({})).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            return Err(AppError::ApiError(format!(
+                "Sync database failed. Status: {status}, Response: {response_text}"
+            )));
+        }
+
+        Ok(())
+    }
+
     async fn get_database_schema(
         &self,
         instance: &str,
@@ -829,6 +847,9 @@ pub mod tests {
             _instance: &str,
             _database: &str,
         ) -> Result<Vec<Changelog>, AppError> {
+            unimplemented!()
+        }
+        async fn sync_database(&self, _instance: &str, _database: &str) -> Result<(), AppError> {
             unimplemented!()
         }
         async fn get_database_schema(

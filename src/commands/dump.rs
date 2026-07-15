@@ -52,9 +52,8 @@ pub async fn handle_dump_with_config<C: ConfigOperations>(
             }
         }
         None => {
-            let schema = client
-                .get_database_schema(&env_config.instance, &args.target.db)
-                .await?;
+            let schema =
+                fetch_current_schema(&client, &env_config.instance, &args.target.db).await?;
 
             if schema.trim().is_empty() {
                 if args.fail_if_empty {
@@ -74,6 +73,15 @@ pub async fn handle_dump_with_config<C: ConfigOperations>(
     }
 
     Ok(())
+}
+
+async fn fetch_current_schema<C: BytebaseApi>(
+    client: &C,
+    instance: &str,
+    database: &str,
+) -> Result<String, AppError> {
+    client.sync_database(instance, database).await?;
+    client.get_database_schema(instance, database).await
 }
 
 fn find_target_changelog(
@@ -203,3 +211,7 @@ mod tests {
         assert!(result.is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "dump_http_tests.rs"]
+mod http_tests;
