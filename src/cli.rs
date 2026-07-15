@@ -32,7 +32,7 @@ pub enum Commands {
     /// Show database schema changes (diff) between issues
     Diff(DiffArgs),
 
-    /// Dump complete database schema at a specific issue
+    /// Synchronize and dump the current schema, or dump a historical changelog schema
     Dump(DumpArgs),
 }
 
